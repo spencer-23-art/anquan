@@ -1,8 +1,11 @@
 import axios from "axios";
 import { useAuthStore } from "../stores/auth";
 
+const API_BASE_URL = "/api";
+const FILES_BASE_URL = "/api/files";
+
 const api = axios.create({
-  baseURL: "http://127.0.0.1:8000/api",
+  baseURL: API_BASE_URL,
   timeout: 120000,
 });
 
@@ -34,7 +37,7 @@ export function buildProtectedFileUrl(filePath) {
   }
   const token = getAuthToken();
   const relativePath = String(filePath).replace(/^\/?uploads\/?/, "");
-  return `http://127.0.0.1:8000/api/files/${relativePath}?token=${encodeURIComponent(token || "")}`;
+  return `${FILES_BASE_URL}/${relativePath}?token=${encodeURIComponent(token || "")}`;
 }
 
 export default api;
