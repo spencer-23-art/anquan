@@ -1,0 +1,34 @@
+# Environment
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Local dependencies and temp files
+.pydeps/
+.pydeps_lib/
+.pydeps_manual/
+.tmp/
+.tmp-local/
+*.log
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Runtime data
+uploads/
+safeinspect.db
+*.db
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/
+
+# Windows accident file
+nul

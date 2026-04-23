@@ -1,0 +1,13 @@
+services:
+  app:
+    build: .
+    container_name: safeinspect
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./safeinspect.db:/app/safeinspect.db
+    restart: unless-stopped
+    environment:
+      - SECRET_KEY=${SECRET_KEY:-safeinspect-prod-secret-key-2024}
+      - DATABASE_URL=sqlite:///safeinspect.db
