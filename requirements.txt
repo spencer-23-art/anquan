@@ -8,3 +8,5 @@ bcrypt
 httpx
 apscheduler
 python-multipart
+python-docx
+Pillow
