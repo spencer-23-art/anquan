@@ -11,18 +11,29 @@ from app.services import ai_config_service
 _sessions: dict[str, list[dict]] = {}
 
 SYSTEM_PROMPT = """
-你是一位建筑施工安全专家。你必须只返回 JSON，不要输出任何额外解释。
+你是一位建筑施工安全风险分析专家。
+你必须只返回 JSON，不要输出任何额外解释、标题、markdown 或代码块。
 
 当信息不足时，只返回：
-{"type":"question","content":"需要补充的问题"}
+{
+  "type": "question",
+  "content": "请一次性补充以下信息：\\n1. ...\\n2. ...\\n3. ..."
+}
+
+要求：
+1. 优先一次提出 3 到 5 个关键问题，不要一轮只问 1 个。
+2. 问题必须贴合作业场景，尽量追问会直接影响票证、风险等级和控制措施的信息。
+3. 如果用户已经回答过，不要重复追问。
 
 当信息足够时，只返回：
 {
-  "type":"checklist",
-  "summary":"一句话任务标题",
-  "permits":[{"type":"height_level2","reason":"为什么必须办理"}],
-  "items":[
-    {"risk_description":"风险点","measure":"控制措施","severity":"high"}
+  "type": "checklist",
+  "summary": "一句话任务标题",
+  "permits": [
+    {"type": "height_level2", "reason": "为什么必须办理"}
+  ],
+  "items": [
+    {"risk_description": "风险点", "measure": "控制措施", "severity": "high"}
   ]
 }
 
@@ -40,9 +51,10 @@ SYSTEM_PROMPT = """
    excavation
    electrical
    other
-2. items 至少输出 8 条，尽量覆盖人、机、料、法、环。
+2. items 至少输出 8 条，尽量覆盖人、机、料、法、环、管理。
 3. severity 只能是 low / medium / high。
 4. 所有内容必须是简体中文。
+5. 风险描述要具体，控制措施要可执行，禁止空泛套话。
 """
 
 PERMIT_LABELS = {
@@ -60,13 +72,51 @@ PERMIT_LABELS = {
     "other": "其他作业票",
 }
 
-HEIGHT_KEYWORDS = ("高处", "高空", "脚手架", "登高车", "吊篮", "临边")
-PIT_KEYWORDS = ("基坑", "地坑", "地沟", "井下", "沟槽", "坑内")
-HOT_WORK_KEYWORDS = ("动火", "焊接", "切割", "明火", "气割")
-LIFTING_KEYWORDS = ("吊装", "起重", "吊车", "汽车吊", "塔吊")
-ELECTRICAL_KEYWORDS = ("临时用电", "临电", "配电箱", "电缆", "接电")
-EXCAVATION_KEYWORDS = ("动土", "开挖", "土方", "挖沟", "挖槽")
-ENVIRONMENT_KEYWORDS = ("高压线", "地下管线", "管线", "积水", "淤泥", "易燃", "障碍物")
+HEIGHT_KEYWORDS = (
+    "高处",
+    "高空",
+    "外墙",
+    "脚手架",
+    "登高",
+    "登高车",
+    "吊篮",
+    "梯子",
+    "升降平台",
+    "临边",
+)
+PIT_KEYWORDS = ("基坑", "地坑", "沟槽", "坑内", "井下", "池内", "槽内")
+HOT_WORK_KEYWORDS = ("动火", "焊接", "切割", "明火", "气割", "电焊")
+LIFTING_KEYWORDS = ("吊装", "起重", "吊车", "汽车吊", "塔吊", "吊运")
+ELECTRICAL_KEYWORDS = ("临时用电", "临电", "配电箱", "电缆", "接电", "带电")
+EXCAVATION_KEYWORDS = ("动土", "开挖", "土方", "挖沟", "挖槽", "探坑")
+PAINT_KEYWORDS = ("刷墙", "刷漆", "喷漆", "油漆", "防腐", "涂料", "腻子")
+CONFINED_HINT_KEYWORDS = ("有限空间", "受限空间", "污水池", "水池", "井", "罐", "箱涵", "管廊")
+ACCESS_KEYWORDS = (
+    "脚手架",
+    "登高车",
+    "高空车",
+    "吊篮",
+    "梯子",
+    "升降平台",
+    "曲臂车",
+    "直臂车",
+    "作业平台",
+    "马凳",
+)
+PROTECTION_KEYWORDS = (
+    "安全带",
+    "生命绳",
+    "挂点",
+    "防护栏",
+    "围栏",
+    "警戒线",
+    "监护人",
+    "旁站",
+    "硬隔离",
+)
+VENTILATION_KEYWORDS = ("通风", "送风", "排风", "风机", "气体检测", "检测仪", "有毒有害", "氧气")
+ENVIRONMENT_KEYWORDS = ("高压线", "地下管线", "管线", "积水", "淤泥", "易燃", "障碍", "车辆通行")
+NEGATIVE_ANSWERS = {"没有", "无", "不是", "不存在", "不用", "未使用", "未涉及", "否"}
 
 
 def _normalize_ai_content(content: str) -> str:
@@ -98,7 +148,7 @@ def _extract_upstream_error_text(response: httpx.Response) -> str:
 
 
 def _joined_user_text(messages: list[dict]) -> str:
-    return "\n".join(item["content"] for item in messages if item["role"] == "user")
+    return "\n".join(str(item["content"]) for item in messages if item["role"] == "user")
 
 
 def _contains_any(text: str, keywords: tuple[str, ...]) -> bool:
@@ -109,43 +159,81 @@ def _extract_first_number(text: str, patterns: list[str]) -> Optional[float]:
     for pattern in patterns:
         match = re.search(pattern, text)
         if match:
-            return float(match.group(1))
+            try:
+                return float(match.group(1))
+            except ValueError:
+                continue
     return None
 
 
 def _extract_worker_count(text: str) -> Optional[int]:
-    match = re.search(r"(\d+)\s*人", text)
+    for pattern in [
+        r"(\d+)\s*人(?:施工|作业|操作|进入)?",
+        r"(?:共|计划|安排)?\s*(\d+)\s*名(?:人员|工人)?",
+    ]:
+        match = re.search(pattern, text)
+        if match:
+            return int(match.group(1))
+    return None
+
+
+def _extract_reply_number(text: str) -> Optional[float]:
+    stripped = str(text).strip()
+    match = re.fullmatch(r"(?:约|大约)?\s*(\d+(?:\.\d+)?)\s*(?:米|m)?", stripped)
     if match:
-        return int(match.group(1))
+        return float(match.group(1))
     return None
 
 
 def _extract_scene_facts(messages: list[dict]) -> dict:
     text = _joined_user_text(messages)
+    latest = _latest_user_message(messages)
+    previous_user_text = "\n".join(
+        str(item["content"]) for item in messages[:-1] if item["role"] == "user"
+    )
+    lower_text = text.lower()
+    height = _extract_first_number(
+        text,
+        [
+            r"(?:高处|高空|高度|作业高度)[^\d]{0,8}(\d+(?:\.\d+)?)\s*米",
+            r"(\d+(?:\.\d+)?)\s*米[^\n]{0,8}(?:高处|高空|作业)",
+        ],
+    )
+    pit_depth = _extract_first_number(
+        text,
+        [
+            r"(?:基坑|地坑|沟槽|坑深|深度)[^\d]{0,8}(\d+(?:\.\d+)?)\s*米",
+            r"(\d+(?:\.\d+)?)\s*米[^\n]{0,8}(?:基坑|地坑|沟槽|井下|坑内)",
+        ],
+    )
+
+    short_number_reply = _extract_reply_number(latest)
+    if short_number_reply is not None:
+        if pit_depth is None and _contains_any(previous_user_text, PIT_KEYWORDS):
+            pit_depth = short_number_reply
+        elif height is None and _contains_any(previous_user_text, HEIGHT_KEYWORDS):
+            height = short_number_reply
+
     return {
         "text": text,
         "workers": _extract_worker_count(text),
-        "height": _extract_first_number(
-            text,
-            [
-                r"(?:高处|高空|高度|作业高度)[^\d]{0,8}(\d+(?:\.\d+)?)\s*米",
-                r"(\d+(?:\.\d+)?)\s*米[^\n]{0,8}(?:高处|高空|作业)",
-            ],
-        ),
-        "pit_depth": _extract_first_number(
-            text,
-            [
-                r"(?:基坑|地坑|沟槽|坑深|深度)[^\d]{0,8}(\d+(?:\.\d+)?)\s*米",
-                r"(\d+(?:\.\d+)?)\s*米[^\n]{0,8}(?:基坑|地坑|沟槽|井下)",
-            ],
-        ),
+        "height": height,
+        "pit_depth": pit_depth,
         "has_height": _contains_any(text, HEIGHT_KEYWORDS),
         "has_pit": _contains_any(text, PIT_KEYWORDS),
         "has_hot_work": _contains_any(text, HOT_WORK_KEYWORDS),
         "has_lifting": _contains_any(text, LIFTING_KEYWORDS),
         "has_electrical": _contains_any(text, ELECTRICAL_KEYWORDS),
         "has_excavation": _contains_any(text, EXCAVATION_KEYWORDS),
+        "has_paint": _contains_any(text, PAINT_KEYWORDS),
+        "confined_hint": _contains_any(text, CONFINED_HINT_KEYWORDS),
+        "access_known": _contains_any(text, ACCESS_KEYWORDS),
+        "protection_known": _contains_any(text, PROTECTION_KEYWORDS),
+        "ventilation_known": _contains_any(text, VENTILATION_KEYWORDS),
         "environment_known": _contains_any(text, ENVIRONMENT_KEYWORDS),
+        "mentions_scaffold": "脚手架" in text,
+        "mentions_lift_platform": any(word in text for word in ("登高车", "高空车", "升降平台", "吊篮")),
+        "mentions_negative": any(word in lower_text for word in NEGATIVE_ANSWERS),
     }
 
 
@@ -156,25 +244,97 @@ def _latest_user_message(messages: list[dict]) -> str:
     return ""
 
 
+def _add_question(questions: list[str], question: str) -> None:
+    if question and question not in questions:
+        questions.append(question)
+
+
 def _build_deterministic_question(messages: list[dict]) -> Optional[str]:
     facts = _extract_scene_facts(messages)
     latest = _latest_user_message(messages)
-    if latest in {"有", "没有", "无", "不存在"}:
+
+    if latest in NEGATIVE_ANSWERS:
         return None
 
+    questions: list[str] = []
+
+    if not any(
+        [
+            facts["has_height"],
+            facts["has_pit"],
+            facts["has_hot_work"],
+            facts["has_lifting"],
+            facts["has_electrical"],
+            facts["has_excavation"],
+            facts["has_paint"],
+            facts["confined_hint"],
+        ]
+    ):
+        _add_question(questions, "具体是什么作业，作业位置在哪里？")
+        _add_question(questions, "作业高度或深度大约多少米？")
+        _add_question(questions, "计划几个人施工，使用什么设备或机具？")
+        _add_question(questions, "周边是否有通行人员、管线、积水、带电或易燃风险？")
+
     if facts["has_pit"] and facts["pit_depth"] is None:
-        return "基坑或沟槽深度是多少米？"
+        _add_question(questions, "地坑、基坑或沟槽深度大约多少米？")
 
     if facts["has_height"] and facts["height"] is None:
-        return "作业高度大约多少米？"
+        _add_question(questions, "实际离地作业高度大约多少米？")
 
     if facts["workers"] is None:
-        return "现场计划几个人施工？"
+        _add_question(questions, "现场计划几个人施工，是否有人专职监护？")
 
-    if (facts["has_pit"] or facts["has_height"]) and not facts["environment_known"]:
-        return "作业半径内是否存在高压线、地下管线、积水、淤泥或其他周边障碍？"
+    if facts["has_pit"] and not facts["access_known"]:
+        _add_question(
+            questions,
+            "作业人员是在坑底地面作业，还是要在坑内脚手架、登高车、吊篮或梯子上作业？请一次说明使用的登高方式。",
+        )
+    elif (facts["has_height"] or (facts["pit_depth"] or 0) >= 2) and not facts["access_known"]:
+        _add_question(questions, "准备使用脚手架、登高车、吊篮、梯子还是其他登高机具？设备是否已验收？")
 
-    return None
+    if (facts["has_height"] or (facts["pit_depth"] or 0) >= 2) and not facts["protection_known"]:
+        _add_question(questions, "是否设置安全带挂点、临边防护、围栏警戒，并安排现场监护？")
+
+    if (facts["has_paint"] and (facts["has_pit"] or facts["confined_hint"])) and not facts["ventilation_known"]:
+        _add_question(questions, "坑内或受限位置刷墙时，是否已做通风换气、气体检测，使用的涂料是否易燃或有刺激性？")
+    elif (facts["confined_hint"] or facts["has_pit"]) and not facts["ventilation_known"]:
+        _add_question(questions, "作业空间是否需要通风、气体检测或持续监测？")
+
+    if (
+        facts["has_height"]
+        or facts["has_pit"]
+        or facts["has_hot_work"]
+        or facts["has_lifting"]
+        or facts["has_excavation"]
+    ) and not facts["environment_known"]:
+        _add_question(questions, "作业周边是否有高压线、地下管线、积水淤泥、车辆通行、障碍物或其他交叉作业？")
+
+    if facts["has_hot_work"] and "动火等级" not in facts["text"] and not re.search(r"[一二三123]级动火", facts["text"]):
+        _add_question(questions, "如果涉及动火，请说明是焊接、切割还是明火作业，周边是否有可燃物，计划按几级动火管理？")
+
+    if facts["has_lifting"] and not re.search(r"(起重量|吊重|重量|吨)", facts["text"]):
+        _add_question(questions, "如果涉及吊装，请补充吊装重量、吊装范围，以及吊物下方是否有人通行或停留。")
+
+    if facts["has_electrical"] and "配电箱" not in facts["text"] and "漏保" not in facts["text"]:
+        _add_question(questions, "如果涉及临时用电，请补充电源接入方式、配电箱位置，以及是否有漏电保护和电缆防护。")
+
+    if facts["has_excavation"] and not re.search(r"(放坡|支护|支撑|开挖深度)", facts["text"]):
+        _add_question(questions, "如果涉及开挖或动土，请补充开挖深度，以及是否已经放坡、支护或探明地下管线。")
+
+    if not questions:
+        return None
+
+    selected = questions[:5]
+    lines = [f"{index}. {question}" for index, question in enumerate(selected, start=1)]
+    return "为一次性完成风险分析，请补充以下信息：\n" + "\n".join(lines)
+
+
+def _infer_hot_work_level(text: str) -> str:
+    if "一级动火" in text or "1级动火" in text:
+        return "hot_work_level1"
+    if "三级动火" in text or "3级动火" in text:
+        return "hot_work_level3"
+    return "hot_work_level2"
 
 
 def _infer_permits(messages: list[dict], ai_permits: Optional[list]) -> list[dict]:
@@ -196,13 +356,17 @@ def _infer_permits(messages: list[dict], ai_permits: Optional[list]) -> list[dic
 
     for permit in ai_permits or []:
         if isinstance(permit, dict) and permit.get("type"):
+            permit_type = str(permit["type"])
             add_permit(
-                str(permit["type"]),
-                str(permit.get("reason") or f"需要办理 {PERMIT_LABELS.get(str(permit['type']), str(permit['type']))}。"),
+                permit_type,
+                str(permit.get("reason") or f"需要办理 {PERMIT_LABELS.get(permit_type, permit_type)}。"),
             )
 
     if facts["pit_depth"] is not None and facts["pit_depth"] > 1.2:
-        add_permit("confined_space", f"基坑或受限空间深度约 {facts['pit_depth']} 米，必须办理受限空间作业票。")
+        add_permit(
+            "confined_space",
+            f"坑槽或受限位置深度约 {facts['pit_depth']} 米，需核查受限空间风险并办理受限空间作业票。",
+        )
 
     height = facts["height"]
     if height is not None and height >= 2:
@@ -217,16 +381,17 @@ def _infer_permits(messages: list[dict], ai_permits: Optional[list]) -> list[dic
         add_permit(permit_type, f"作业高度约 {height} 米，对应 {PERMIT_LABELS[permit_type]}。")
 
     if facts["has_hot_work"]:
-        add_permit("hot_work_level2", "场景涉及动火或热作业，必须办理动火作业票。")
+        permit_type = _infer_hot_work_level(facts["text"])
+        add_permit(permit_type, f"场景涉及动火或热作业，需要办理 {PERMIT_LABELS[permit_type]}。")
 
     if facts["has_lifting"]:
-        add_permit("lifting", "场景涉及吊装或起重作业，必须办理吊装作业票。")
+        add_permit("lifting", "场景涉及吊装或起重作业，需要办理吊装作业票。")
 
     if facts["has_electrical"]:
-        add_permit("electrical", "场景涉及临时用电，必须办理临时用电作业票。")
+        add_permit("electrical", "场景涉及临时用电，需要办理临时用电作业票。")
 
     if facts["has_excavation"]:
-        add_permit("excavation", "场景涉及开挖或动土施工，必须办理动土作业票。")
+        add_permit("excavation", "场景涉及开挖或动土施工，需要办理动土作业票。")
 
     return permits
 
@@ -238,19 +403,22 @@ def _normalize_checklist_payload(messages: list[dict], parsed: dict) -> dict:
     for item in items:
         if not isinstance(item, dict):
             continue
+        severity = str(item.get("severity") or "medium").strip().lower()
+        if severity not in {"low", "medium", "high"}:
+            severity = "medium"
         cleaned_items.append(
             {
                 "risk_description": str(item.get("risk_description") or "").strip(),
                 "measure": str(item.get("measure") or "").strip(),
-                "severity": str(item.get("severity") or "medium").strip().lower(),
+                "severity": severity,
             }
         )
 
     if not cleaned_items:
         cleaned_items = [
             {
-                "risk_description": "现场存在未明确识别的施工风险，需要补充专项风险辨识。",
-                "measure": "由现场负责人组织班前交底并补充控制措施。",
+                "risk_description": "现场存在尚未完全识别的施工风险，需要补充专项风险辨识。",
+                "measure": "由现场负责人组织班前交底并补充控制措施后再实施作业。",
                 "severity": "medium",
             }
         ]
@@ -278,21 +446,22 @@ def chat(
 
     deterministic_question = _build_deterministic_question(messages)
     if deterministic_question:
-        content = json.dumps({"type": "question", "content": deterministic_question}, ensure_ascii=False)
+        payload = {"type": "question", "content": deterministic_question}
+        content = json.dumps(payload, ensure_ascii=False)
         messages.append({"role": "assistant", "content": content})
         return session_id, "question", content
 
     provider = ai_config_service.get_runtime_provider(db, provider_id)
     if not provider:
         messages.pop()
-        raise ValueError("AI 接口尚未配置，请先在系统设置中补全可用的 AI 服务。")
+        raise ValueError("AI 接口尚未配置，请先在系统设置中补充可用的 AI 服务。")
 
     base_url = ai_config_service.normalize_base_url(provider.get("base_url", ""))
     api_key = str(provider.get("api_key") or "").strip()
     model = str(provider.get("model") or "deepseek-chat").strip()
     if not base_url or not api_key:
         messages.pop()
-        raise ValueError("当前选中的 AI 接口未完整配置，请先在系统设置中补全地址和 API Key。")
+        raise ValueError("当前选中的 AI 接口配置不完整，请先在系统设置中补全地址和 API Key。")
 
     try:
         with httpx.Client(timeout=120.0) as client:

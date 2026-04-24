@@ -541,7 +541,7 @@ export default function AIChatTask() {
             {messages.map((message, index) => (
               <div
                 key={`${message.role}-${index}`}
-                className={`rounded-3xl px-4 py-3 text-sm leading-6 ${
+                className={`whitespace-pre-line rounded-3xl px-4 py-3 text-sm leading-6 ${
                   message.role === "user"
                     ? "ml-10 border border-emerald-100 bg-emerald-100 text-emerald-950"
                     : "mr-10 border border-slate-200 bg-white text-slate-700 shadow-sm"
