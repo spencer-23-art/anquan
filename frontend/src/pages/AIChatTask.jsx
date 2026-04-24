@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   Bot,
   CheckCircle2,
-  ChevronRight,
   Loader2,
   ShieldCheck,
   Sparkles,
@@ -33,9 +32,9 @@ const SEVERITY_LABELS = {
 };
 
 const SUGGESTIONS = [
-  "厂房夹层拆旧设备，需要动火并搭设脚手架，3人施工。",
-  "污水池内部检修，2人进入受限空间，现场潮湿，需要临时用电。",
-  "仓库外立面高处清洗，使用登高车作业，高度约8米，周边有通行人员。",
+  "地坑刷墙，深度约 5 米，坑内作业，2 人施工，准备使用脚手架，周边有车辆通行。",
+  "厂房顶灯具更换，登高车作业，高度约 8 米，2 人施工，周边有人通行。",
+  "污水池内部检修，2 人进入，现场潮湿，需要临时用电和气体检测。",
 ];
 
 function safeParseChecklist(content) {
@@ -55,22 +54,32 @@ function extractErrorMessage(err, fallback) {
   if (typeof detail === "string" && detail.trim()) {
     return detail.trim();
   }
-
   if (Array.isArray(detail) && detail.length > 0) {
-    return detail
-      .map((item) => item?.msg || item?.message || JSON.stringify(item))
-      .join("；");
+    return detail.map((item) => item?.msg || item?.message || JSON.stringify(item)).join("；");
   }
-
   if (detail && typeof detail === "object") {
     return detail.message || JSON.stringify(detail);
   }
-
   if (typeof err?.message === "string" && err.message.trim()) {
     return err.message.trim();
   }
-
   return fallback;
+}
+
+function normalizeText(text, fallback) {
+  if (!text || !String(text).trim()) {
+    return fallback;
+  }
+
+  return String(text).trim();
+}
+
+function permitLabel(type) {
+  return PERMIT_LABELS[type] || type || "未识别票证";
+}
+
+function permitReason(permit) {
+  return permit?.reason?.trim() || `必须办理 ${permitLabel(permit?.type)}`;
 }
 
 function severityTone(severity) {
@@ -84,24 +93,24 @@ function severityTone(severity) {
   }
 }
 
-function permitLabel(type) {
-  return PERMIT_LABELS[type] || type || "未识别票种";
-}
+function splitGuidanceSections(item) {
+  const raw = String(item?.measure || "");
+  const parsed = {
+    inspection:
+      String(item?.inspection_points || "").trim() ||
+      (raw.match(/排查要点[:：]\s*([\s\S]*?)(?=\n拍照要求[:：]|\n整改要求[:：]|$)/)?.[1]?.trim() || ""),
+    photo:
+      String(item?.photo_requirements || "").trim() ||
+      (raw.match(/拍照要求[:：]\s*([\s\S]*?)(?=\n整改要求[:：]|$)/)?.[1]?.trim() || ""),
+    rectification:
+      raw.match(/整改要求[:：]\s*([\s\S]*)$/)?.[1]?.trim() || "",
+  };
 
-function permitReason(permit) {
-  return permit?.reason?.trim() || `必须同步办理 ${permitLabel(permit?.type)}`;
-}
-
-function normalizeText(text, fallback) {
-  if (!text || !String(text).trim()) {
-    return fallback;
+  if (!parsed.inspection && !parsed.photo && !parsed.rectification) {
+    parsed.rectification = raw.trim();
   }
 
-  return String(text)
-    .trim()
-    .replace(/Generated from AI session/gi, "AI 会话生成")
-    .replace(/risk/gi, "风险")
-    .replace(/measure/gi, "措施");
+  return parsed;
 }
 
 function SelectDot({ selected, tone = "emerald" }) {
@@ -140,7 +149,7 @@ export default function AIChatTask() {
   useEffect(() => {
     let cancelled = false;
 
-    const loadPageData = async () => {
+    async function loadPageData() {
       setOptionsLoading(true);
       try {
         const [areasResponse, usersResponse, configResponse] = await Promise.all([
@@ -155,14 +164,12 @@ export default function AIChatTask() {
 
         const areaList = areasResponse.data || [];
         const assigneeList = usersResponse.data || [];
+        const runtime = configResponse.data || null;
+
         setAreas(areaList);
         setAssignees(assigneeList);
-        setConfigInfo(configResponse.data || null);
-        setSelectedProviderId(
-          configResponse.data?.active_provider_id ||
-            configResponse.data?.providers?.[0]?.id ||
-            ""
-        );
+        setConfigInfo(runtime);
+        setSelectedProviderId(runtime?.active_provider_id || runtime?.providers?.[0]?.id || "");
         setCreateForm((current) => ({
           area_id: current.area_id || String(areaList[0]?.id || ""),
           assignee_id: current.assignee_id || String(assigneeList[0]?.id || ""),
@@ -176,10 +183,9 @@ export default function AIChatTask() {
           setOptionsLoading(false);
         }
       }
-    };
+    }
 
     loadPageData();
-
     return () => {
       cancelled = true;
     };
@@ -189,7 +195,6 @@ export default function AIChatTask() {
     if (!chatViewportRef.current) {
       return;
     }
-
     chatViewportRef.current.scrollTo({
       top: chatViewportRef.current.scrollHeight,
       behavior: "smooth",
@@ -216,21 +221,9 @@ export default function AIChatTask() {
   );
 
   const selectedAssignee = useMemo(
-    () =>
-      assignees.find(
-        (assignee) => String(assignee.id) === String(createForm.assignee_id)
-      ),
+    () => assignees.find((assignee) => String(assignee.id) === String(createForm.assignee_id)),
     [assignees, createForm.assignee_id]
   );
-
-  const selectedProvider = useMemo(() => {
-    const providers = configInfo?.providers || [];
-    return (
-      providers.find((provider) => provider.id === selectedProviderId) ||
-      providers[0] ||
-      null
-    );
-  }, [configInfo, selectedProviderId]);
 
   const selectedRiskItems = useMemo(() => {
     if (!draftTask?.items?.length) {
@@ -246,13 +239,8 @@ export default function AIChatTask() {
     return draftTask.permits.filter((_, index) => selectedPermitIndexes.includes(index));
   }, [draftTask, selectedPermitIndexes]);
 
-  const leftPanelStyle = draftTask
-    ? { flex: 0.86, minWidth: 0 }
-    : { flex: 1.16, minWidth: 0 };
-
-  const rightPanelStyle = draftTask
-    ? { flex: 1.14, minWidth: 0 }
-    : { flex: 0.84, minWidth: 0 };
+  const leftPanelStyle = draftTask ? { flex: 0.92, minWidth: 0 } : { flex: 1.12, minWidth: 0 };
+  const rightPanelStyle = draftTask ? { flex: 1.08, minWidth: 0 } : { flex: 0.88, minWidth: 0 };
 
   const sendMessage = async () => {
     if (!input.trim() || loading) {
@@ -271,12 +259,13 @@ export default function AIChatTask() {
         message: userMessage.content,
         provider_id: selectedProviderId || undefined,
       });
+
       setSessionId(data.session_id);
 
       const parsed = safeParseChecklist(data.content);
       const displayContent =
         parsed?.type === "checklist"
-          ? `风险识别完成，已生成 ${parsed.items?.length || 0} 条风险和 ${parsed.permits?.length || 0} 张必须办理票证。`
+          ? `风险识别完成，已生成 ${parsed.items?.length || 0} 条隐患检查项和 ${parsed.permits?.length || 0} 张必须办理票证。`
           : parsed?.content || data.content;
 
       appendMessage({
@@ -298,10 +287,12 @@ export default function AIChatTask() {
 
         setDraftTask({
           session_id: data.session_id,
-          title: normalizeText(parsed.summary, "AI 生成作业草稿"),
+          title: normalizeText(parsed.summary, "AI 生成作业任务"),
           items: (parsed.items || []).map((item) => ({
             ...item,
             risk_description: normalizeText(item.risk_description, "待确认风险"),
+            inspection_points: normalizeText(item.inspection_points, ""),
+            photo_requirements: normalizeText(item.photo_requirements, ""),
             measure: normalizeText(item.measure, ""),
           })),
           permits: uniquePermits,
@@ -317,60 +308,21 @@ export default function AIChatTask() {
     }
   };
 
-  const toggleRisk = (index) => {
-    setSelectedRiskIndexes((current) =>
-      current.includes(index)
-        ? current.filter((item) => item !== index)
-        : [...current, index].sort((a, b) => a - b)
-    );
-  };
-
-  const togglePermit = (index) => {
-    setSelectedPermitIndexes((current) =>
-      current.includes(index)
-        ? current.filter((item) => item !== index)
-        : [...current, index].sort((a, b) => a - b)
-    );
-  };
-
-  const selectAllRisks = () => {
-    if (draftTask?.items?.length) {
-      setSelectedRiskIndexes(draftTask.items.map((_, index) => index));
-    }
-  };
-
-  const clearRiskSelection = () => {
-    setSelectedRiskIndexes([]);
-  };
-
-  const selectAllPermits = () => {
-    if (draftTask?.permits?.length) {
-      setSelectedPermitIndexes(draftTask.permits.map((_, index) => index));
-    }
-  };
-
-  const clearPermitSelection = () => {
-    setSelectedPermitIndexes([]);
-  };
-
   const createTask = async () => {
     if (!draftTask) {
       setPageMessage("请先让 AI 完成一次风险分析。");
       return;
     }
-
     if (!selectedRiskItems.length) {
-      setPageMessage("请至少选择一条需要下发的风险。");
+      setPageMessage("请至少选择一条需要下发的隐患检查项。");
       return;
     }
-
     if (!selectedPermits.length) {
       setPageMessage("请至少选择一张必须办理的票证。");
       return;
     }
-
     if (!createForm.area_id || !createForm.assignee_id) {
-      setPageMessage("请先选择区域和负责人。");
+      setPageMessage("请先选择所属区域和负责人。");
       return;
     }
 
@@ -389,9 +341,9 @@ export default function AIChatTask() {
 
       appendMessage({
         role: "assistant",
-        content: `任务创建成功，已下发 ${selectedRiskItems.length} 条风险，并生成 ${selectedPermits.length} 张必须办理票证。`,
+        content: `任务创建成功，已下发 ${selectedRiskItems.length} 条隐患检查项，并生成 ${selectedPermits.length} 张必须办理票证。`,
       });
-      setPageMessage("任务已成功创建。已选票证必须办理，并由现场拍照上传后才算完成闭环。");
+      setPageMessage("任务已成功创建。现场检查时请按排查要点逐项核查，并按拍照要求上传佐证照片。");
       setDraftTask(null);
     } catch (err) {
       setPageMessage(extractErrorMessage(err, "任务创建失败，请补充信息后重试。"));
@@ -417,35 +369,30 @@ export default function AIChatTask() {
   };
 
   return (
-    <div className="space-y-6">
-      <section className="rounded-[28px] border border-emerald-100 bg-[linear-gradient(135deg,#f4fbf7_0%,#ecf7ff_52%,#fff8ee_100%)] p-6 shadow-[0_10px_35px_rgba(15,23,42,0.08)]">
+    <div className="space-y-4 sm:space-y-6">
+      <section className="rounded-[28px] border border-emerald-100 bg-[linear-gradient(135deg,#f4fbf7_0%,#ecf7ff_52%,#fff8ee_100%)] p-4 shadow-[0_10px_35px_rgba(15,23,42,0.08)] sm:p-6">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <div className="inline-flex items-center gap-2 rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium tracking-wide text-emerald-700">
               <Sparkles size={14} />
               AI 风险分析
             </div>
-            <h1 className="mt-4 text-3xl font-semibold tracking-tight text-slate-900">
-              从作业描述直接生成风险草稿
+            <h1 className="mt-4 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
+              从作业描述直接生成隐患检查草稿
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
-              输入现场作业场景，AI 会先补齐必要信息，再输出风险清单、必须办理票证和任务草稿。
-              草稿出来后，右侧会扩展，左侧会收窄，但始终保持左右并排。
+              AI 不只会说“有什么风险”，还会补充“安全员怎么查、要拍什么照片、发现问题后怎么整改”，减少现场反复追问。
             </p>
           </div>
 
           <div className="grid gap-3 text-sm sm:grid-cols-2">
             <div className="rounded-2xl border border-white/80 bg-white/80 px-4 py-3 shadow-sm backdrop-blur">
               <div className="text-slate-500">当前模型</div>
-              <div className="mt-1 font-medium text-slate-900">
-                {configInfo?.ai_model || "未配置"}
-              </div>
+              <div className="mt-1 font-medium text-slate-900">{configInfo?.ai_model || "未配置"}</div>
             </div>
             <div className="rounded-2xl border border-white/80 bg-white/80 px-4 py-3 shadow-sm backdrop-blur">
               <div className="text-slate-500">接口状态</div>
-              <div className="mt-1 font-medium text-emerald-700">
-                {configInfo?.ai_base_url ? "已连接" : "待配置"}
-              </div>
+              <div className="mt-1 font-medium text-emerald-700">{configInfo?.ai_base_url ? "已连接" : "待配置"}</div>
             </div>
           </div>
         </div>
@@ -462,18 +409,16 @@ export default function AIChatTask() {
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <div className="text-sm font-medium text-slate-900">当前模型</div>
-              <div className="mt-1 text-xs text-slate-500">
-                你配置了多个 AI 接口，这里可以按次切换本轮分析要使用的模型。
-              </div>
+              <div className="mt-1 text-xs text-slate-500">如果你配置了多个接口，可以切换当前这一轮分析使用的模型。</div>
             </div>
             <select
-              className="min-w-[280px] rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900"
+              className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 md:min-w-[280px]"
               value={selectedProviderId}
               onChange={(event) => setSelectedProviderId(event.target.value)}
             >
               {(configInfo?.providers || []).map((provider) => (
                 <option key={provider.id} value={provider.id}>
-                  {provider.name || "未命名接口"} · {provider.model || "未配置模型"}
+                  {(provider.name || "未命名接口") + " · " + (provider.model || "未配置模型")}
                 </option>
               ))}
             </select>
@@ -481,10 +426,10 @@ export default function AIChatTask() {
         </div>
       ) : null}
 
-      <div className="flex flex-col gap-6 lg:flex-row">
+      <div className="flex flex-col gap-4 lg:flex-row lg:gap-6">
         <section
           style={leftPanelStyle}
-          className={`rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_10px_35px_rgba(15,23,42,0.06)] transition-all duration-500 ${
+          className={`rounded-[28px] border border-slate-200 bg-white p-4 shadow-[0_10px_35px_rgba(15,23,42,0.06)] transition-all duration-500 sm:p-6 ${
             draftTask ? "lg:-translate-x-1 lg:scale-[0.99]" : ""
           }`}
         >
@@ -494,9 +439,7 @@ export default function AIChatTask() {
                 <Bot size={18} />
                 <h2 className="text-lg font-semibold">对话分析区</h2>
               </div>
-              <p className="mt-2 text-sm text-slate-500">
-                按回车直接发送，按 Shift + Enter 换行。
-              </p>
+              <p className="mt-2 text-sm text-slate-500">按回车直接发送，按 Shift + Enter 换行。</p>
             </div>
             <button
               type="button"
@@ -523,17 +466,15 @@ export default function AIChatTask() {
           <div
             ref={chatViewportRef}
             className={`mt-5 space-y-3 overflow-y-auto rounded-3xl bg-slate-50 p-4 transition-all duration-500 ${
-              draftTask ? "h-[540px]" : "h-[460px]"
+              draftTask ? "h-[520px] sm:h-[560px]" : "h-[420px] sm:h-[460px]"
             }`}
           >
             {messages.length === 0 ? (
               <div className="flex h-full flex-col items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-white px-6 text-center">
                 <Sparkles className="h-10 w-10 text-emerald-500" />
-                <div className="mt-4 text-base font-medium text-slate-900">
-                  先描述一个作业场景
-                </div>
+                <div className="mt-4 text-base font-medium text-slate-900">先描述一个作业场景</div>
                 <div className="mt-2 max-w-md text-sm leading-6 text-slate-500">
-                  例如“污水池内部检修，需要 2 人进入，现场潮湿，有临时用电和气体检测要求”。
+                  比如“地坑刷墙，深度约 5 米，坑内脚手架作业，2 人施工，周边有车辆通行，需要拍照核查脚手架和安全带。”
                 </div>
               </div>
             ) : null}
@@ -543,8 +484,8 @@ export default function AIChatTask() {
                 key={`${message.role}-${index}`}
                 className={`whitespace-pre-line rounded-3xl px-4 py-3 text-sm leading-6 ${
                   message.role === "user"
-                    ? "ml-10 border border-emerald-100 bg-emerald-100 text-emerald-950"
-                    : "mr-10 border border-slate-200 bg-white text-slate-700 shadow-sm"
+                    ? "ml-6 border border-emerald-100 bg-emerald-100 text-emerald-950 sm:ml-10"
+                    : "mr-6 border border-slate-200 bg-white text-slate-700 shadow-sm sm:mr-10"
                 }`}
               >
                 {message.content}
@@ -552,20 +493,20 @@ export default function AIChatTask() {
             ))}
 
             {loading ? (
-              <div className="mr-10 inline-flex items-center gap-2 rounded-3xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm">
+              <div className="mr-6 inline-flex items-center gap-2 rounded-3xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm sm:mr-10">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 AI 正在分析现场风险...
               </div>
             ) : null}
           </div>
 
-          <div className="mt-4 flex gap-3">
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row">
             <textarea
               className="min-h-28 flex-1 rounded-3xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
               value={input}
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={handleTextareaKeyDown}
-              placeholder="输入作业描述，例如：车间顶部灯具更换，使用登高车，作业高度约 8 米，2 人施工，周边有通行人员。"
+              placeholder="输入作业描述，例如：地坑刷墙，深度 5 米，坑内脚手架作业，2 人施工，需要检查脚手架稳定和安全带佩戴。"
             />
             <button
               type="button"
@@ -580,7 +521,7 @@ export default function AIChatTask() {
 
         <aside
           style={rightPanelStyle}
-          className={`rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_10px_35px_rgba(15,23,42,0.06)] transition-all duration-500 ${
+          className={`rounded-[28px] border border-slate-200 bg-white p-4 shadow-[0_10px_35px_rgba(15,23,42,0.06)] transition-all duration-500 sm:p-6 ${
             draftTask ? "lg:-translate-x-3 ring-1 ring-emerald-100" : "lg:scale-[0.985]"
           }`}
         >
@@ -589,38 +530,28 @@ export default function AIChatTask() {
             <h2 className="text-lg font-semibold">任务草稿</h2>
           </div>
           <p className="mt-2 text-sm text-slate-500">
-            票证放在最上方。选中的票证代表必须办理，且现场必须拍照上传。风险和票证默认全选，你可以按需取消。
+            票证在最上方。选中的票证代表必须办理并拍照上传。隐患卡片里会直接显示排查要点、拍照要求和整改要求。
           </p>
 
           {draftTask ? (
             <div className="mt-5 space-y-5 text-sm text-slate-700">
               <div className="rounded-3xl bg-[linear-gradient(135deg,#f7fafc_0%,#eefcf6_100%)] p-4">
-                <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                  草稿标题
-                </div>
-                <div className="mt-2 text-base font-semibold text-slate-900">
-                  {draftTask.title}
-                </div>
+                <div className="text-xs font-medium uppercase tracking-wide text-slate-500">草稿标题</div>
+                <div className="mt-2 text-base font-semibold text-slate-900">{draftTask.title}</div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <div className="rounded-3xl bg-amber-50 px-4 py-3">
                   <div className="text-xs text-amber-700">必办票证</div>
-                  <div className="mt-1 text-xl font-semibold text-amber-900">
-                    {selectedPermits.length}
-                  </div>
+                  <div className="mt-1 text-xl font-semibold text-amber-900">{selectedPermits.length}</div>
                 </div>
                 <div className="rounded-3xl bg-emerald-50 px-4 py-3">
-                  <div className="text-xs text-emerald-700">下发风险</div>
-                  <div className="mt-1 text-xl font-semibold text-emerald-900">
-                    {selectedRiskItems.length}
-                  </div>
+                  <div className="text-xs text-emerald-700">下发隐患</div>
+                  <div className="mt-1 text-xl font-semibold text-emerald-900">{selectedRiskItems.length}</div>
                 </div>
                 <div className="rounded-3xl bg-slate-50 px-4 py-3">
-                  <div className="text-xs text-slate-500">识别风险</div>
-                  <div className="mt-1 text-xl font-semibold text-slate-900">
-                    {draftTask.items?.length || 0}
-                  </div>
+                  <div className="text-xs text-slate-500">识别总数</div>
+                  <div className="mt-1 text-xl font-semibold text-slate-900">{draftTask.items?.length || 0}</div>
                 </div>
               </div>
 
@@ -633,14 +564,14 @@ export default function AIChatTask() {
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={selectAllPermits}
+                      onClick={() => setSelectedPermitIndexes(draftTask.permits.map((_, index) => index))}
                       className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs text-amber-700 transition hover:bg-amber-100"
                     >
                       全选
                     </button>
                     <button
                       type="button"
-                      onClick={clearPermitSelection}
+                      onClick={() => setSelectedPermitIndexes([])}
                       className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600 transition hover:bg-slate-100"
                     >
                       清空
@@ -656,20 +587,22 @@ export default function AIChatTask() {
                         <button
                           key={`${permit.type}-${index}`}
                           type="button"
-                          onClick={() => togglePermit(index)}
+                          onClick={() =>
+                            setSelectedPermitIndexes((current) =>
+                              current.includes(index)
+                                ? current.filter((item) => item !== index)
+                                : [...current, index].sort((a, b) => a - b)
+                            )
+                          }
                           className={`w-full rounded-3xl border px-4 py-4 text-left transition ${
-                            selected
-                              ? "border-amber-300 bg-amber-50 shadow-sm"
-                              : "border-slate-200 bg-white"
+                            selected ? "border-amber-300 bg-amber-50 shadow-sm" : "border-slate-200 bg-white"
                           }`}
                         >
                           <div className="flex items-start gap-3">
                             <SelectDot selected={selected} tone="amber" />
                             <div className="min-w-0 flex-1">
-                              <div className="flex items-center justify-between gap-3">
-                                <div className="font-medium text-slate-900">
-                                  {permitLabel(permit.type)}
-                                </div>
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                <div className="font-medium text-slate-900">{permitLabel(permit.type)}</div>
                                 <div className="flex items-center gap-2">
                                   <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">
                                     必须办票
@@ -681,13 +614,9 @@ export default function AIChatTask() {
                                   ) : null}
                                 </div>
                               </div>
-
-                              <div className="mt-2 text-xs leading-5 text-slate-700">
-                                {permitReason(permit)}
-                              </div>
-
+                              <div className="mt-2 text-xs leading-5 text-slate-700">{permitReason(permit)}</div>
                               <div className="mt-3 rounded-2xl border border-amber-200 bg-white/90 px-3 py-2 text-xs leading-5 text-amber-900">
-                                必须拍照上传：选中的票证必须办理，现场上传办票照片后才算完成闭环。
+                                选中的票证必须办理，现场必须上传办票照片和作业状态照片。
                               </div>
                             </div>
                           </div>
@@ -706,19 +635,19 @@ export default function AIChatTask() {
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2 font-medium text-slate-900">
                     <AlertTriangle size={16} className="text-emerald-500" />
-                    待下发风险
+                    隐患检查项
                   </div>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={selectAllRisks}
+                      onClick={() => setSelectedRiskIndexes(draftTask.items.map((_, index) => index))}
                       className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs text-emerald-700 transition hover:bg-emerald-100"
                     >
                       全选
                     </button>
                     <button
                       type="button"
-                      onClick={clearRiskSelection}
+                      onClick={() => setSelectedRiskIndexes([])}
                       className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600 transition hover:bg-slate-100"
                     >
                       清空
@@ -726,53 +655,61 @@ export default function AIChatTask() {
                   </div>
                 </div>
 
-                <div className="max-h-[360px] space-y-3 overflow-y-auto pr-1">
+                <div className="max-h-[460px] space-y-3 overflow-y-auto pr-1">
                   {(draftTask.items || []).map((item, index) => {
                     const selected = selectedRiskIndexes.includes(index);
+                    const guidance = splitGuidanceSections(item);
+
                     return (
                       <button
                         key={`${item.risk_description}-${index}`}
                         type="button"
-                        onClick={() => toggleRisk(index)}
+                        onClick={() =>
+                          setSelectedRiskIndexes((current) =>
+                            current.includes(index)
+                              ? current.filter((itemIndex) => itemIndex !== index)
+                              : [...current, index].sort((a, b) => a - b)
+                          )
+                        }
                         className={`w-full rounded-3xl border px-4 py-4 text-left transition ${
-                          selected
-                            ? "border-emerald-200 bg-emerald-50/70 shadow-sm"
-                            : "border-slate-200 bg-white"
+                          selected ? "border-emerald-200 bg-emerald-50/70 shadow-sm" : "border-slate-200 bg-white"
                         }`}
                       >
                         <div className="flex items-start gap-3">
                           <SelectDot selected={selected} />
-
                           <div className="min-w-0 flex-1">
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="text-xs font-medium text-slate-500">
-                                风险 {index + 1}
-                              </div>
-                              <span
-                                className={`rounded-full px-2 py-1 text-xs font-medium ${severityTone(
-                                  item.severity
-                                )}`}
-                              >
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                              <div className="text-xs font-medium text-slate-500">隐患 {index + 1}</div>
+                              <span className={`rounded-full px-2 py-1 text-xs font-medium ${severityTone(item.severity)}`}>
                                 {SEVERITY_LABELS[item.severity] || "中风险"}
                               </span>
                             </div>
 
                             <div className="mt-2 text-sm leading-6 text-slate-900">
-                              {normalizeText(item.risk_description, "待确认风险")}
+                              {normalizeText(item.risk_description, "待确认隐患")}
                             </div>
 
-                            {item.measure ? (
+                            {guidance.inspection ? (
+                              <div className="mt-3 rounded-2xl border border-sky-200 bg-sky-50/80 px-3 py-2 text-xs leading-5 text-sky-900">
+                                <div className="font-semibold text-sky-800">怎么排查</div>
+                                <div className="mt-1">{normalizeText(guidance.inspection, "请现场补充排查要点")}</div>
+                              </div>
+                            ) : null}
+
+                            {guidance.photo ? (
+                              <div className="mt-3 rounded-2xl border border-violet-200 bg-violet-50/80 px-3 py-2 text-xs leading-5 text-violet-900">
+                                <div className="font-semibold text-violet-800">拍照要求</div>
+                                <div className="mt-1">{normalizeText(guidance.photo, "请补充拍照要求")}</div>
+                              </div>
+                            ) : null}
+
+                            {guidance.rectification ? (
                               <div className="mt-3 rounded-2xl bg-white/80 px-3 py-2 text-xs leading-5 text-slate-700">
-                                建议措施：{normalizeText(item.measure, "请现场补充控制措施")}
+                                <div className="font-semibold text-slate-800">整改要求</div>
+                                <div className="mt-1">{normalizeText(guidance.rectification, "请补充整改要求")}</div>
                               </div>
                             ) : null}
                           </div>
-
-                          <ChevronRight
-                            className={`h-4 w-4 shrink-0 text-slate-300 transition ${
-                              selected ? "translate-x-0 text-emerald-500" : "translate-x-1"
-                            }`}
-                          />
                         </div>
                       </button>
                     );
@@ -781,11 +718,9 @@ export default function AIChatTask() {
               </div>
 
               <div className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-4">
-                <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                  下发汇总
-                </div>
+                <div className="text-xs font-medium uppercase tracking-wide text-slate-500">下发汇总</div>
                 <div className="mt-2 text-sm leading-6 text-slate-800">
-                  将下发 <span className="font-semibold text-emerald-700">{selectedRiskItems.length}</span> 条风险，
+                  将下发 <span className="font-semibold text-emerald-700">{selectedRiskItems.length}</span> 条隐患检查项，
                   必须办理 <span className="font-semibold text-amber-700">{selectedPermits.length}</span> 张票证。
                 </div>
               </div>
@@ -796,45 +731,28 @@ export default function AIChatTask() {
                   <select
                     className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-slate-900 outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
                     value={createForm.area_id}
-                    onChange={(event) =>
-                      setCreateForm({ ...createForm, area_id: event.target.value })
-                    }
+                    onChange={(event) => setCreateForm({ ...createForm, area_id: event.target.value })}
                     disabled={optionsLoading}
                   >
-                    <option value="">
-                      {optionsLoading ? "区域加载中..." : "请选择区域"}
-                    </option>
+                    <option value="">{optionsLoading ? "区域加载中..." : "请选择区域"}</option>
                     {areas.map((area) => (
                       <option key={area.id} value={area.id}>
                         {area.name}
                       </option>
                     ))}
                   </select>
-                  {selectedArea ? (
-                    <div className="mt-2 text-xs text-slate-500">
-                      已选择：{selectedArea.name}
-                    </div>
-                  ) : null}
+                  {selectedArea ? <div className="mt-2 text-xs text-slate-500">已选择：{selectedArea.name}</div> : null}
                 </div>
 
                 <div>
-                  <label className="mb-2 block font-medium text-slate-900">
-                    指派负责人
-                  </label>
+                  <label className="mb-2 block font-medium text-slate-900">指派负责人</label>
                   <select
                     className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-slate-900 outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
                     value={createForm.assignee_id}
-                    onChange={(event) =>
-                      setCreateForm({
-                        ...createForm,
-                        assignee_id: event.target.value,
-                      })
-                    }
+                    onChange={(event) => setCreateForm({ ...createForm, assignee_id: event.target.value })}
                     disabled={optionsLoading}
                   >
-                    <option value="">
-                      {optionsLoading ? "负责人加载中..." : "请选择负责人"}
-                    </option>
+                    <option value="">{optionsLoading ? "负责人加载中..." : "请选择负责人"}</option>
                     {assignees.map((assignee) => (
                       <option key={assignee.id} value={assignee.id}>
                         {assignee.real_name} ({assignee.username})
@@ -842,9 +760,7 @@ export default function AIChatTask() {
                     ))}
                   </select>
                   {selectedAssignee ? (
-                    <div className="mt-2 text-xs text-slate-500">
-                      已选择：{selectedAssignee.real_name}
-                    </div>
+                    <div className="mt-2 text-xs text-slate-500">已选择：{selectedAssignee.real_name}</div>
                   ) : null}
                 </div>
               </div>
@@ -862,7 +778,7 @@ export default function AIChatTask() {
             <div className="mt-5 rounded-3xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center">
               <div className="text-base font-medium text-slate-900">暂无任务草稿</div>
               <div className="mt-2 text-sm leading-6 text-slate-500">
-                完成一轮 AI 分析后，这里会自动出现必须办理票证、风险清单和任务创建入口。
+                完成一轮 AI 分析后，这里会自动生成隐患检查项、排查要点、拍照要求和任务创建入口。
               </div>
             </div>
           )}

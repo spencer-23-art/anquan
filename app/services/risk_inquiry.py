@@ -33,7 +33,13 @@ SYSTEM_PROMPT = """
     {"type": "height_level2", "reason": "为什么必须办理"}
   ],
   "items": [
-    {"risk_description": "风险点", "measure": "控制措施", "severity": "high"}
+    {
+      "risk_description": "风险是什么",
+      "inspection_points": "现场要排查什么、怎么判断是否存在隐患",
+      "photo_requirements": "要求安全员拍什么照片作为佐证",
+      "measure": "发现问题后如何整改或控制",
+      "severity": "high"
+    }
   ]
 }
 
@@ -54,7 +60,9 @@ SYSTEM_PROMPT = """
 2. items 至少输出 8 条，尽量覆盖人、机、料、法、环、管理。
 3. severity 只能是 low / medium / high。
 4. 所有内容必须是简体中文。
-5. 风险描述要具体，控制措施要可执行，禁止空泛套话。
+5. inspection_points 必须写清楚安全员到现场如何排查，比如脚手架要看步距、立杆、连墙件、剪刀撑、基础；高坠要看安全带、挂点、临边防护；临时用电要看配电箱、漏保、电缆；受限空间要看气体检测、通风、监护。
+6. photo_requirements 必须明确告诉安全员拍什么，不要只写“拍照留存”。
+7. measure 必须是发现问题后的整改或控制要求，不能和 inspection_points 重复。
 """
 
 PERMIT_LABELS = {
@@ -185,6 +193,13 @@ def _extract_reply_number(text: str) -> Optional[float]:
     return None
 
 
+def _latest_user_message(messages: list[dict]) -> str:
+    for message in reversed(messages):
+        if message["role"] == "user":
+            return str(message["content"]).strip()
+    return ""
+
+
 def _extract_scene_facts(messages: list[dict]) -> dict:
     text = _joined_user_text(messages)
     latest = _latest_user_message(messages)
@@ -192,6 +207,7 @@ def _extract_scene_facts(messages: list[dict]) -> dict:
         str(item["content"]) for item in messages[:-1] if item["role"] == "user"
     )
     lower_text = text.lower()
+
     height = _extract_first_number(
         text,
         [
@@ -231,17 +247,8 @@ def _extract_scene_facts(messages: list[dict]) -> dict:
         "protection_known": _contains_any(text, PROTECTION_KEYWORDS),
         "ventilation_known": _contains_any(text, VENTILATION_KEYWORDS),
         "environment_known": _contains_any(text, ENVIRONMENT_KEYWORDS),
-        "mentions_scaffold": "脚手架" in text,
-        "mentions_lift_platform": any(word in text for word in ("登高车", "高空车", "升降平台", "吊篮")),
         "mentions_negative": any(word in lower_text for word in NEGATIVE_ANSWERS),
     }
-
-
-def _latest_user_message(messages: list[dict]) -> str:
-    for message in reversed(messages):
-        if message["role"] == "user":
-            return str(message["content"]).strip()
-    return ""
 
 
 def _add_question(questions: list[str], question: str) -> None:
@@ -337,6 +344,21 @@ def _infer_hot_work_level(text: str) -> str:
     return "hot_work_level2"
 
 
+def _build_combined_measure(
+    inspection_points: str,
+    photo_requirements: str,
+    measure: str,
+) -> str:
+    parts = []
+    if inspection_points:
+        parts.append(f"排查要点：{inspection_points}")
+    if photo_requirements:
+        parts.append(f"拍照要求：{photo_requirements}")
+    if measure:
+        parts.append(f"整改要求：{measure}")
+    return "\n".join(parts).strip()
+
+
 def _infer_permits(messages: list[dict], ai_permits: Optional[list]) -> list[dict]:
     facts = _extract_scene_facts(messages)
     permits: list[dict] = []
@@ -400,25 +422,62 @@ def _normalize_checklist_payload(messages: list[dict], parsed: dict) -> dict:
     permits = _infer_permits(messages, parsed.get("permits"))
     items = parsed.get("items") or []
     cleaned_items = []
+
     for item in items:
         if not isinstance(item, dict):
             continue
+
         severity = str(item.get("severity") or "medium").strip().lower()
         if severity not in {"low", "medium", "high"}:
             severity = "medium"
+
+        inspection_points = str(
+            item.get("inspection_points")
+            or item.get("inspection_method")
+            or item.get("check_method")
+            or ""
+        ).strip()
+        photo_requirements = str(
+            item.get("photo_requirements")
+            or item.get("photo_requirement")
+            or item.get("photo_points")
+            or ""
+        ).strip()
+        measure = str(
+            item.get("measure")
+            or item.get("control_measure")
+            or item.get("control_measures")
+            or ""
+        ).strip()
+
         cleaned_items.append(
             {
                 "risk_description": str(item.get("risk_description") or "").strip(),
-                "measure": str(item.get("measure") or "").strip(),
+                "inspection_points": inspection_points,
+                "photo_requirements": photo_requirements,
+                "measure": _build_combined_measure(
+                    inspection_points=inspection_points,
+                    photo_requirements=photo_requirements,
+                    measure=measure,
+                ),
                 "severity": severity,
             }
         )
 
     if not cleaned_items:
+        fallback_inspection = "由安全员对现场作业条件、设备状态、人员防护、周边环境和票证落实情况逐项排查。"
+        fallback_photo = "拍摄作业面全景、人员站位、防护措施、设备状态和问题细部照片。"
+        fallback_measure = "发现隐患后立即停止相关作业，补充交底并落实控制措施后方可恢复施工。"
         cleaned_items = [
             {
                 "risk_description": "现场存在尚未完全识别的施工风险，需要补充专项风险辨识。",
-                "measure": "由现场负责人组织班前交底并补充控制措施后再实施作业。",
+                "inspection_points": fallback_inspection,
+                "photo_requirements": fallback_photo,
+                "measure": _build_combined_measure(
+                    inspection_points=fallback_inspection,
+                    photo_requirements=fallback_photo,
+                    measure=fallback_measure,
+                ),
                 "severity": "medium",
             }
         ]
