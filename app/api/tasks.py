@@ -1,18 +1,18 @@
 import os
-import json
 from datetime import datetime
-
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
-from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 
-from app.api.deps import get_db, get_current_user, require_admin
-from app.models.user import User, UserRole
-from app.models.task import Task, ChecklistItem, TaskStatus, CheckItemStatus, Severity
-from app.schemas.task import TaskCreate, TaskOut, TaskFromAI
-from app.config import settings
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from sqlalchemy.orm import Session, joinedload
 
-router = APIRouter(prefix="/api/tasks", tags=["任务管理"])
+from app.api.deps import get_current_user, get_db, require_admin
+from app.config import settings
+from app.models.task import CheckItemStatus, ChecklistItem, Task, TaskStatus
+from app.models.user import User, UserRole
+from app.schemas.task import TaskCreate, TaskFromAI, TaskOut
+from app.services.area_scope import ensure_area_access, managed_area_ids
+
+router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
 
 async def read_limited_upload(upload: UploadFile) -> bytes:
@@ -25,13 +25,22 @@ async def read_limited_upload(upload: UploadFile) -> bytes:
     return content
 
 
+def task_query(db: Session):
+    return db.query(Task).options(
+        joinedload(Task.checklist_items),
+        joinedload(Task.area),
+        joinedload(Task.assignee),
+        joinedload(Task.associated_permits),
+    )
+
+
 @router.post("", response_model=TaskOut, status_code=201)
 def create_task(
     data: TaskCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    """创建巡查任务 (管理员)"""
+    ensure_area_access(db, current_user, data.area_id)
     task = Task(
         title=data.title,
         description=data.description,
@@ -44,17 +53,17 @@ def create_task(
     db.flush()
 
     for item_data in data.checklist_items:
-        item = ChecklistItem(
-            task_id=task.id,
-            risk_description=item_data.risk_description,
-            measure=item_data.measure,
-            severity=item_data.severity,
+        db.add(
+            ChecklistItem(
+                task_id=task.id,
+                risk_description=item_data.risk_description,
+                measure=item_data.measure,
+                severity=item_data.severity,
+            )
         )
-        db.add(item)
 
     db.commit()
-    db.refresh(task)
-    return db.query(Task).options(joinedload(Task.checklist_items)).filter(Task.id == task.id).first()
+    return task_query(db).filter(Task.id == task.id).first()
 
 
 @router.post("/from-ai", response_model=TaskOut, status_code=201)
@@ -63,7 +72,7 @@ def create_task_from_ai(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    """从 AI 生成的清单创建任务"""
+    ensure_area_access(db, current_user, data.area_id)
     task = Task(
         title=data.title,
         description=data.description,
@@ -77,17 +86,17 @@ def create_task_from_ai(
     db.flush()
 
     for item_data in data.checklist_items:
-        item = ChecklistItem(
-            task_id=task.id,
-            risk_description=item_data.risk_description,
-            measure=item_data.measure,
-            severity=item_data.severity,
+        db.add(
+            ChecklistItem(
+                task_id=task.id,
+                risk_description=item_data.risk_description,
+                measure=item_data.measure,
+                severity=item_data.severity,
+            )
         )
-        db.add(item)
 
     db.commit()
-    db.refresh(task)
-    return db.query(Task).options(joinedload(Task.checklist_items)).filter(Task.id == task.id).first()
+    return task_query(db).filter(Task.id == task.id).first()
 
 
 @router.get("", response_model=List[TaskOut])
@@ -96,18 +105,16 @@ def list_tasks(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取任务列表 (管理员看全部, 巡查员只看自己的)"""
-    q = db.query(Task).options(
-        joinedload(Task.checklist_items),
-        joinedload(Task.area),
-        joinedload(Task.assignee),
-        joinedload(Task.associated_permits)
-    )
+    query = task_query(db)
     if current_user.role != UserRole.ADMIN:
-        q = q.filter(Task.assignee_id == current_user.id)
+        query = query.filter(Task.assignee_id == current_user.id)
+    else:
+        allowed_ids = managed_area_ids(db, current_user)
+        if allowed_ids is not None:
+            query = query.filter(Task.area_id.in_(allowed_ids))
     if status_filter:
-        q = q.filter(Task.status == status_filter)
-    return q.order_by(Task.created_at.desc()).all()
+        query = query.filter(Task.status == status_filter)
+    return query.order_by(Task.created_at.desc()).all()
 
 
 @router.get("/{task_id}", response_model=TaskOut)
@@ -116,16 +123,13 @@ def get_task(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    task = db.query(Task).options(
-        joinedload(Task.checklist_items),
-        joinedload(Task.area),
-        joinedload(Task.assignee),
-        joinedload(Task.associated_permits)
-    ).filter(Task.id == task_id).first()
+    task = task_query(db).filter(Task.id == task_id).first()
     if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
+        raise HTTPException(status_code=404, detail="Task not found")
     if current_user.role != UserRole.ADMIN and task.assignee_id != current_user.id:
-        raise HTTPException(status_code=403, detail="无权访问")
+        raise HTTPException(status_code=403, detail="No access to this task")
+    if current_user.role == UserRole.ADMIN:
+        ensure_area_access(db, current_user, task.area_id)
     return task
 
 
@@ -134,57 +138,55 @@ async def check_item(
     task_id: int,
     item_id: int,
     note: str = Form(default=""),
-    photo: UploadFile = File(..., description="现场拍照 (必须)"),
+    photo: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    巡查员打卡: 完成某条检查项 (强制拍照上传)
-    """
-    item = db.query(ChecklistItem).filter(
-        ChecklistItem.id == item_id,
-        ChecklistItem.task_id == task_id,
-    ).first()
+    item = (
+        db.query(ChecklistItem)
+        .filter(ChecklistItem.id == item_id, ChecklistItem.task_id == task_id)
+        .first()
+    )
     if not item:
-        raise HTTPException(status_code=404, detail="检查项不存在")
+        raise HTTPException(status_code=404, detail="Checklist item not found")
 
     task = db.query(Task).filter(Task.id == task_id).first()
-    if task.assignee_id != current_user.id:
-        raise HTTPException(status_code=403, detail="你不是该任务的指派人")
+    if not task or task.assignee_id != current_user.id:
+        raise HTTPException(status_code=403, detail="No access to this task")
 
-    # 验证文件类型
     if not photo.content_type or not photo.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="必须上传图片文件")
+        raise HTTPException(status_code=400, detail="Photo must be an image")
 
-    # 保存照片
     upload_dir = os.path.join(settings.UPLOAD_DIR, "checklist", str(task_id))
     os.makedirs(upload_dir, exist_ok=True)
-    ext = photo.filename.split(".")[-1] if photo.filename else "jpg"
-    filename = f"{item_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}.{ext}"
+    ext = photo.filename.rsplit(".", 1)[-1] if photo.filename and "." in photo.filename else "jpg"
+    filename = f"{item_id}_{datetime.now().strftime('%Y%m%d%H%M%S%f')}.{ext}"
     filepath = os.path.join(upload_dir, filename)
 
     content = await read_limited_upload(photo)
-    with open(filepath, "wb") as f:
-        f.write(content)
+    with open(filepath, "wb") as file_obj:
+        file_obj.write(content)
 
-    # 更新检查项
     item.status = CheckItemStatus.CHECKED
     item.photo_url = f"/uploads/checklist/{task_id}/{filename}"
     item.note = note
     item.checked_at = datetime.utcnow()
     db.commit()
 
-    # 检查是否所有项都完成
     total = db.query(ChecklistItem).filter(ChecklistItem.task_id == task_id).count()
-    checked = db.query(ChecklistItem).filter(
-        ChecklistItem.task_id == task_id,
-        ChecklistItem.status == CheckItemStatus.CHECKED,
-    ).count()
+    checked = (
+        db.query(ChecklistItem)
+        .filter(ChecklistItem.task_id == task_id, ChecklistItem.status == CheckItemStatus.CHECKED)
+        .count()
+    )
 
     if checked == total:
         task.status = TaskStatus.COMPLETED
         task.completed_at = datetime.utcnow()
         db.commit()
+
+    return {"message": "Checklist item checked"}
+
 
 @router.delete("/{task_id}")
 def delete_task(
@@ -192,11 +194,11 @@ def delete_task(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    """(管理员) 物理删除任务及关联核查项"""
     task = db.query(Task).filter(Task.id == task_id).first()
     if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
-    
+        raise HTTPException(status_code=404, detail="Task not found")
+    ensure_area_access(db, current_user, task.area_id)
+
     db.delete(task)
     db.commit()
-    return {"message": "任务已成功删除"}
+    return {"message": "Task deleted"}

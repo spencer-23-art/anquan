@@ -26,6 +26,8 @@ const links = [
 ];
 
 function SidebarContent({ user, onLogout, onNavigate }) {
+  const visibleLinks = user?.username === "spencer" ? links : links.filter((link) => link.to !== "/approvals");
+
   return (
     <>
       <div className="border-b border-border p-5 sm:p-6">
@@ -39,7 +41,7 @@ function SidebarContent({ user, onLogout, onNavigate }) {
       </div>
 
       <nav className="flex-1 space-y-2 p-4">
-        {links.map((link) => (
+        {visibleLinks.map((link) => (
           <NavLink
             key={link.to}
             to={link.to}

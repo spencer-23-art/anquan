@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import or_
+from sqlalchemy import inspect, or_, text
 
 from app.api.ai_risk import router as ai_router
 from app.api.areas import router as areas_router
@@ -59,9 +59,67 @@ def init_admin():
         db.close()
 
 
+def ensure_runtime_schema():
+    """Add lightweight SQLite columns for existing installations."""
+    if not settings.DATABASE_URL.startswith("sqlite"):
+        return
+
+    rebuild_areas_table_if_unique()
+
+    inspector = inspect(engine)
+    with engine.begin() as conn:
+        area_columns = {column["name"] for column in inspector.get_columns("areas")}
+        if "parent_id" not in area_columns:
+            conn.execute(text("ALTER TABLE areas ADD COLUMN parent_id INTEGER"))
+
+        user_columns = {column["name"] for column in inspector.get_columns("users")}
+        if "managed_area_id" not in user_columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN managed_area_id INTEGER"))
+
+
+def rebuild_areas_table_if_unique():
+    raw_conn = engine.raw_connection()
+    try:
+        cursor = raw_conn.cursor()
+        indexes = cursor.execute("PRAGMA index_list(areas)").fetchall()
+        has_name_unique = any(
+            index_row[2] == 1
+            and cursor.execute(f"PRAGMA index_info({index_row[1]})").fetchall() == [(0, 1, "name")]
+            for index_row in indexes
+        )
+        if not has_name_unique:
+            return
+
+        area_columns = {row[1] for row in cursor.execute("PRAGMA table_info(areas)").fetchall()}
+        parent_select = "parent_id" if "parent_id" in area_columns else "NULL"
+        cursor.execute("PRAGMA foreign_keys=OFF")
+        cursor.executescript(
+            f"""
+            CREATE TABLE areas_new (
+                id INTEGER NOT NULL PRIMARY KEY,
+                name VARCHAR(100) NOT NULL,
+                parent_id INTEGER,
+                description TEXT,
+                created_at DATETIME
+            );
+            INSERT INTO areas_new (id, name, parent_id, description, created_at)
+            SELECT id, name, {parent_select}, description, created_at FROM areas;
+            DROP TABLE areas;
+            ALTER TABLE areas_new RENAME TO areas;
+            CREATE INDEX ix_areas_id ON areas (id);
+            CREATE INDEX ix_areas_parent_id ON areas (parent_id);
+            """
+        )
+        cursor.execute("PRAGMA foreign_keys=ON")
+        raw_conn.commit()
+    finally:
+        raw_conn.close()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    ensure_runtime_schema()
     init_admin()
     start_scheduler()
     print("[SafeInspect] Server started")

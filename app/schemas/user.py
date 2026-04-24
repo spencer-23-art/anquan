@@ -43,6 +43,7 @@ class UserOut(BaseModel):
     real_name: str
     phone: Optional[str] = None
     role: UserRole
+    managed_area_id: Optional[int] = None
     status: UserStatus
     created_at: datetime
 
@@ -52,6 +53,12 @@ class UserOut(BaseModel):
 
 class UserApproval(BaseModel):
     status: UserStatus
+
+
+class UserPermissionUpdate(BaseModel):
+    role: UserRole
+    managed_area_id: Optional[int] = None
+    status: Optional[UserStatus] = None
 
 
 class Token(BaseModel):

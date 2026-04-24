@@ -18,6 +18,7 @@ from app.schemas.system_config import (
 )
 from app.services import ai_config_service
 from app.services import risk_inquiry
+from app.services.area_scope import ensure_area_access
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
@@ -167,6 +168,7 @@ def create_task_from_ai(
         raise HTTPException(status_code=400, detail="Checklist items are required")
 
     try:
+        ensure_area_access(db, current_user, data.area_id)
         assignee = db.query(User).filter(User.id == data.assignee_id).first()
         if not assignee:
             raise HTTPException(status_code=404, detail="Assignee not found")
@@ -211,7 +213,7 @@ def create_task_from_ai(
                     photo_url=permit.photo_url,
                     start_time=start_time,
                     end_time=end_time,
-                    status=PermitStatus.PENDING,
+                    status=PermitStatus.ACTIVE,
                     task_id=task.id,
                 )
             )

@@ -12,11 +12,33 @@ import UserApproval from './pages/UserApproval';
 import SystemSettings from './pages/SystemSettings';
 import { useAuthStore } from './stores/auth';
 
-const ProtectedRoute = ({ children }) => {
-  const { isAuthenticated } = useAuthStore();
+const AdminRoute = ({ children }) => {
+  const { isAuthenticated, user } = useAuthStore();
   if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (user?.role !== "admin") return <InspectorWaiting />;
   return children;
 };
+
+function InspectorWaiting() {
+  const { logout } = useAuthStore();
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background p-6 text-foreground">
+      <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 text-center shadow-sm">
+        <h1 className="text-xl font-semibold">安全员客户端暂未开放</h1>
+        <p className="mt-3 text-sm leading-6 text-muted-foreground">
+          当前账号用于后续风险排查客户端，后台管理系统仅管理员可进入。
+        </p>
+        <button
+          type="button"
+          onClick={logout}
+          className="mt-5 rounded-xl bg-primary px-5 py-3 text-sm font-medium text-primary-foreground"
+        >
+          返回登录
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function App() {
   const { isAuthenticated } = useAuthStore();
@@ -32,9 +54,9 @@ function App() {
         element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Register />}
       />
       <Route path="/" element={
-        <ProtectedRoute>
+        <AdminRoute>
           <Layout />
-        </ProtectedRoute>
+        </AdminRoute>
       }>
         <Route index element={<TaskDashboard />} />
         <Route path="dashboard" element={<TaskDashboard />} />
