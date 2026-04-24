@@ -370,7 +370,7 @@ export default function AIChatTask() {
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      <section className="rounded-[28px] border border-emerald-100 bg-[linear-gradient(135deg,#f4fbf7_0%,#ecf7ff_52%,#fff8ee_100%)] p-4 shadow-[0_10px_35px_rgba(15,23,42,0.08)] sm:p-6">
+      <section className="rounded-[28px] border border-emerald-100 bg-[linear-gradient(135deg,#f4fbf7_0%,#ecf7ff_52%,#fff8ee_100%)] p-4 shadow-[0_10px_35px_rgba(15,23,42,0.08)] dark:border-border dark:bg-[linear-gradient(135deg,#27312f_0%,#26313a_52%,#332f27_100%)] sm:p-6">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <div className="inline-flex items-center gap-2 rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium tracking-wide text-emerald-700">
@@ -535,7 +535,7 @@ export default function AIChatTask() {
 
           {draftTask ? (
             <div className="mt-5 space-y-5 text-sm text-slate-700">
-              <div className="rounded-3xl bg-[linear-gradient(135deg,#f7fafc_0%,#eefcf6_100%)] p-4">
+              <div className="rounded-3xl bg-[linear-gradient(135deg,#f7fafc_0%,#eefcf6_100%)] p-4 dark:bg-[linear-gradient(135deg,#26303a_0%,#263832_100%)]">
                 <div className="text-xs font-medium uppercase tracking-wide text-slate-500">草稿标题</div>
                 <div className="mt-2 text-base font-semibold text-slate-900">{draftTask.title}</div>
               </div>

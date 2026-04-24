@@ -226,7 +226,7 @@ export default function PermitMonitor() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-[28px] border border-sky-100 bg-[linear-gradient(135deg,#f7fbff_0%,#f8fcfb_55%,#fff8f0_100%)] p-6 shadow-[0_10px_35px_rgba(15,23,42,0.06)]">
+      <section className="rounded-[28px] border border-sky-100 bg-[linear-gradient(135deg,#f7fbff_0%,#f8fcfb_55%,#fff8f0_100%)] p-6 shadow-[0_10px_35px_rgba(15,23,42,0.06)] dark:border-border dark:bg-[linear-gradient(135deg,#26313c_0%,#273530_55%,#342f26_100%)]">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-slate-900">

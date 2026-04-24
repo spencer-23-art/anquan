@@ -98,7 +98,7 @@ export default function Layout() {
 
   return (
     <div className="flex min-h-screen bg-background text-foreground">
-      <aside className="hidden w-64 border-r border-border bg-card lg:flex lg:flex-col">
+      <aside className="hidden w-56 border-r border-border bg-card xl:w-60 lg:flex lg:flex-col">
         <SidebarContent user={user} onLogout={handleLogout} />
       </aside>
 
@@ -144,7 +144,7 @@ export default function Layout() {
         </header>
 
         <div className="flex-1 overflow-auto">
-          <div className="p-3 sm:p-4 lg:p-8">
+          <div className="p-3 sm:p-4 lg:p-5 xl:p-6">
             <Outlet />
           </div>
         </div>

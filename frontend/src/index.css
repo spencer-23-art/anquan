@@ -25,6 +25,44 @@
     --ring: 160 84% 32%;
   }
 
+  :root[data-theme="dark"] {
+    --background: 220 18% 16%;
+    --foreground: 214 24% 88%;
+    --card: 220 16% 20%;
+    --card-foreground: 214 24% 88%;
+    --popover: 220 16% 20%;
+    --popover-foreground: 214 24% 88%;
+    --primary: 158 64% 42%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 218 15% 24%;
+    --secondary-foreground: 214 24% 88%;
+    --muted: 218 14% 23%;
+    --muted-foreground: 214 14% 68%;
+    --accent: 160 18% 25%;
+    --accent-foreground: 154 55% 78%;
+    --destructive: 0 68% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 218 13% 30%;
+    --input: 218 13% 32%;
+    --ring: 158 64% 42%;
+  }
+
+  html {
+    font-size: 16px;
+  }
+
+  @media (min-width: 1024px) {
+    html {
+      font-size: 15px;
+    }
+  }
+
+  @media (min-width: 1440px) {
+    html {
+      font-size: 14px;
+    }
+  }
+
   * {
     @apply border-border;
   }
@@ -32,5 +70,56 @@
   body {
     @apply bg-background text-foreground antialiased;
     font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+
+  input,
+  select,
+  textarea {
+    @apply bg-card text-foreground;
+  }
+
+  :root[data-theme="dark"] .bg-white,
+  :root[data-theme="dark"] .bg-white\/80,
+  :root[data-theme="dark"] .bg-white\/90,
+  :root[data-theme="dark"] .bg-white\/70,
+  :root[data-theme="dark"] .bg-white\/50 {
+    background-color: hsl(var(--card)) !important;
+  }
+
+  :root[data-theme="dark"] .bg-slate-50,
+  :root[data-theme="dark"] .bg-slate-100 {
+    background-color: hsl(var(--muted)) !important;
+  }
+
+  :root[data-theme="dark"] .bg-slate-200,
+  :root[data-theme="dark"] .disabled\:bg-slate-300:disabled {
+    background-color: hsl(var(--secondary)) !important;
+  }
+
+  :root[data-theme="dark"] .text-slate-900,
+  :root[data-theme="dark"] .text-slate-800 {
+    color: hsl(var(--card-foreground)) !important;
+  }
+
+  :root[data-theme="dark"] .text-slate-700,
+  :root[data-theme="dark"] .text-slate-600,
+  :root[data-theme="dark"] .text-slate-500,
+  :root[data-theme="dark"] .text-slate-400 {
+    color: hsl(var(--muted-foreground)) !important;
+  }
+
+  :root[data-theme="dark"] .border-slate-100,
+  :root[data-theme="dark"] .border-slate-200,
+  :root[data-theme="dark"] .border-slate-300,
+  :root[data-theme="dark"] .border-white\/80,
+  :root[data-theme="dark"] .border-emerald-100,
+  :root[data-theme="dark"] .border-sky-100 {
+    border-color: hsl(var(--border)) !important;
+  }
+
+  :root[data-theme="dark"] .shadow-sm,
+  :root[data-theme="dark"] .shadow-2xl,
+  :root[data-theme="dark"] [class*="shadow-["] {
+    box-shadow: 0 14px 34px rgb(0 0 0 / 0.18) !important;
   }
 }

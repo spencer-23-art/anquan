@@ -43,7 +43,7 @@ export default function FineTicketCenter() {
       return {
         icon: ShieldAlert,
         title: "在线安全罚单",
-        card: "border-blue-200 bg-blue-50/70",
+        card: "border-blue-200 bg-blue-50/70 dark:border-border dark:bg-[linear-gradient(135deg,#26313c_0%,#282f38_100%)]",
         button: "bg-blue-600 hover:bg-blue-700",
         soft: "bg-blue-100 text-blue-700",
         switchClass: "bg-blue-600 text-white shadow-sm",
@@ -53,7 +53,7 @@ export default function FineTicketCenter() {
     return {
       icon: TriangleAlert,
       title: "在线质量罚单",
-      card: "border-amber-200 bg-amber-50/70",
+      card: "border-amber-200 bg-amber-50/70 dark:border-border dark:bg-[linear-gradient(135deg,#342f26_0%,#302d2a_100%)]",
       button: "bg-amber-600 hover:bg-amber-700",
       soft: "bg-amber-100 text-amber-700",
       switchClass: "bg-amber-600 text-white shadow-sm",
