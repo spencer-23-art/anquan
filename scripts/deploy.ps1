@@ -84,10 +84,10 @@ Run-Step "Checking local git state" {
     throw "Current branch is '$currentBranch', expected '$Branch'. Please switch branch first."
   }
 
-  $dirty = git status --porcelain
+  $dirty = git status --porcelain --untracked-files=no
   if ($dirty) {
     Write-Host "Local files have not been committed yet:" -ForegroundColor Yellow
-    git status --short
+    git status --short --untracked-files=no
     throw "Please commit your local changes before deployment, then run this script again."
   }
 
