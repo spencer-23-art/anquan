@@ -27,12 +27,15 @@ class FineTicketCreateResponse(BaseModel):
     number: str
     filename: str
     download_url: str
+    area_id: Optional[int] = None
 
 
 class FineTicketHistoryItem(BaseModel):
     id: int
     number: str
     ticket_type: str
+    area_id: Optional[int] = None
+    area_name: Optional[str] = None
     project_name: str
     team_name: str
     location: str

@@ -18,6 +18,7 @@ class FineTicket(Base):
     id = Column(Integer, primary_key=True, index=True)
     number = Column(String(32), unique=True, nullable=False, index=True)
     ticket_type = Column(SAEnum(FineTicketType), nullable=False, index=True)
+    area_id = Column(Integer, ForeignKey("areas.id"), nullable=True, index=True)
     project_name = Column(String(200), nullable=False)
     team_name = Column(String(200), nullable=False)
     location = Column(String(200), nullable=False)
@@ -30,3 +31,4 @@ class FineTicket(Base):
     created_at = Column(DateTime, default=datetime.now, nullable=False)
 
     creator = relationship("User")
+    area = relationship("Area")

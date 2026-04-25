@@ -31,6 +31,24 @@ class WorkPermitOut(BaseModel):
     created_at: datetime
     area: Optional[AreaOut] = None
     applicant: Optional[UserOut] = None
+    renewal_count: int = 0
+
+    class Config:
+        from_attributes = True
+
+
+class WorkPermitRenewalOut(BaseModel):
+    id: int
+    permit_id: int
+    operator_id: int
+    old_start_time: Optional[datetime] = None
+    old_end_time: Optional[datetime] = None
+    new_start_time: datetime
+    new_end_time: datetime
+    old_photo_url: Optional[str] = None
+    new_photo_url: Optional[str] = None
+    note: Optional[str] = None
+    created_at: datetime
 
     class Config:
         from_attributes = True

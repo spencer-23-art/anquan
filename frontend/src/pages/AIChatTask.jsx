@@ -330,7 +330,7 @@ export default function AIChatTask() {
     setPageMessage("");
 
     try {
-      const { data } = await api.post("/ai/create-task", {
+      await api.post("/ai/create-task", {
         session_id: draftTask.session_id,
         title: draftTask.title,
         items: selectedRiskItems,

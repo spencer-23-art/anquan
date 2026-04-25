@@ -24,6 +24,7 @@ frontend/dist/
 uploads/
 safeinspect.db
 *.db
+*.zip
 
 # OS / IDE
 .DS_Store

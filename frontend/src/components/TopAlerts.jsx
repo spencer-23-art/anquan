@@ -11,7 +11,7 @@ export default function TopAlerts() {
         if (Array.isArray(res.data)) {
           setWarnings(res.data);
         }
-      } catch (err) {
+      } catch {
         // failed to fetch, possibly unauthenticated, ignore silently
       }
     };

@@ -68,3 +68,27 @@ class WorkPermit(Base):
     applicant = relationship("User", back_populates="work_permits", foreign_keys=[applicant_id])
     previous_permit = relationship("WorkPermit", remote_side="WorkPermit.id", uselist=False)
     task = relationship("Task", back_populates="associated_permits")
+    renewals = relationship(
+        "WorkPermitRenewal",
+        back_populates="permit",
+        cascade="all, delete-orphan",
+    )
+
+
+class WorkPermitRenewal(Base):
+    __tablename__ = "work_permit_renewals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    permit_id = Column(Integer, ForeignKey("work_permits.id", ondelete="CASCADE"), nullable=False, index=True)
+    operator_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    old_start_time = Column(DateTime, nullable=True)
+    old_end_time = Column(DateTime, nullable=True)
+    new_start_time = Column(DateTime, nullable=False)
+    new_end_time = Column(DateTime, nullable=False)
+    old_photo_url = Column(String(500), nullable=True)
+    new_photo_url = Column(String(500), nullable=True)
+    note = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+    permit = relationship("WorkPermit", back_populates="renewals")
+    operator = relationship("User")

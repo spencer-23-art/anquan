@@ -2,6 +2,8 @@ from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
@@ -17,8 +19,22 @@ from app.schemas.fine_ticket import (
     FineTicketHistoryItem,
 )
 from app.services import fine_ticket_service
+from app.services.area_scope import ensure_area_access, is_super_admin, managed_area_ids
 
 router = APIRouter(prefix="/api/fines", tags=["fines"])
+
+
+def ensure_fine_access(db: Session, current_user: User, record: FineTicket) -> None:
+    if is_super_admin(current_user):
+        return
+    if current_user.role != UserRole.ADMIN:
+        if record.creator_id != current_user.id:
+            raise HTTPException(status_code=403, detail="No permission to access this fine ticket")
+        return
+
+    allowed_ids = managed_area_ids(db, current_user) or []
+    if not record.area_id or record.area_id not in allowed_ids:
+        raise HTTPException(status_code=403, detail="No permission to access this fine ticket")
 
 
 @router.get("/next-number", response_model=FineNumberPreview)
@@ -59,6 +75,7 @@ def generate_description(
 @router.post("", response_model=FineTicketCreateResponse)
 def create_fine_ticket(
     penalty_type: str = Form(...),
+    area_id: Optional[int] = Form(default=None),
     project_name: str = Form(...),
     team_name: str = Form(...),
     location: str = Form(...),
@@ -77,6 +94,9 @@ def create_fine_ticket(
 
     photo_paths: list[Path] = []
     try:
+        if area_id is not None:
+            ensure_area_access(db, current_user, area_id)
+
         number = fine_ticket_service.consume_next_number(ticket_type)
         photo_paths = fine_ticket_service.save_uploaded_photos(photos)
         filename, output_path = fine_ticket_service.build_fine_document(
@@ -94,6 +114,7 @@ def create_fine_ticket(
         record = FineTicket(
             number=number,
             ticket_type=ticket_type,
+            area_id=area_id,
             project_name=project_name,
             team_name=team_name,
             location=location,
@@ -114,6 +135,7 @@ def create_fine_ticket(
             number=record.number,
             filename=filename,
             download_url=f"/fines/{record.id}/download",
+            area_id=record.area_id,
         )
     except HTTPException:
         db.rollback()
@@ -132,7 +154,12 @@ def fine_ticket_history(
     current_user: User = Depends(get_current_user),
 ):
     query = db.query(FineTicket)
-    if current_user.role != UserRole.ADMIN:
+    if is_super_admin(current_user):
+        pass
+    elif current_user.role == UserRole.ADMIN:
+        allowed_ids = managed_area_ids(db, current_user) or []
+        query = query.filter(FineTicket.area_id.in_(allowed_ids))
+    else:
         query = query.filter(FineTicket.creator_id == current_user.id)
     records = query.order_by(FineTicket.created_at.desc()).all()
     items: list[FineTicketHistoryItem] = []
@@ -143,6 +170,8 @@ def fine_ticket_history(
                 id=record.id,
                 number=record.number,
                 ticket_type=record.ticket_type.value,
+                area_id=record.area_id,
+                area_name=getattr(record.area, "name", None),
                 project_name=record.project_name,
                 team_name=record.team_name,
                 location=record.location,
@@ -167,8 +196,7 @@ def download_fine_ticket(
     record = db.query(FineTicket).filter(FineTicket.id == fine_id).first()
     if not record:
         raise HTTPException(status_code=404, detail="Fine ticket not found")
-    if current_user.role != UserRole.ADMIN and record.creator_id != current_user.id:
-        raise HTTPException(status_code=403, detail="No permission to access this fine ticket")
+    ensure_fine_access(db, current_user, record)
 
     path = Path(record.document_path)
     if not path.exists():

@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require_admin
 from app.models.area import Area
+from app.models.fine_ticket import FineTicket
 from app.models.task import Task
 from app.models.user import User
 from app.models.work_permit import WorkPermit
@@ -64,6 +65,8 @@ def update_area(
     if data.parent_id:
         if data.parent_id == area.id:
             raise HTTPException(status_code=400, detail="Area cannot be its own parent")
+        if data.parent_id in collect_descendant_area_ids(db, area.id):
+            raise HTTPException(status_code=400, detail="Area cannot be moved under its own child area")
         parent = db.query(Area).filter(Area.id == data.parent_id).first()
         if not parent:
             raise HTTPException(status_code=400, detail="Parent area not found")
@@ -89,8 +92,9 @@ def delete_area(
     area_ids = collect_descendant_area_ids(db, area.id)
     task_count = db.query(Task).filter(Task.area_id.in_(area_ids)).count()
     permit_count = db.query(WorkPermit).filter(WorkPermit.area_id.in_(area_ids)).count()
+    fine_count = db.query(FineTicket).filter(FineTicket.area_id.in_(area_ids)).count()
     manager_count = db.query(User).filter(User.managed_area_id.in_(area_ids)).count()
-    if task_count or permit_count or manager_count:
+    if task_count or permit_count or fine_count or manager_count:
         raise HTTPException(
             status_code=400,
             detail="区域已有任务、票证或管理员权限，不能直接删除；可以先把它归入项目，保留原有数据。",

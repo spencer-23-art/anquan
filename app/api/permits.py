@@ -15,8 +15,9 @@ from app.models.work_permit import (
     PermitStatus,
     PermitType,
     WorkPermit,
+    WorkPermitRenewal,
 )
-from app.schemas.work_permit import WorkPermitOut, WorkPermitWarning
+from app.schemas.work_permit import WorkPermitOut, WorkPermitRenewalOut, WorkPermitWarning
 from app.services.area_scope import ensure_area_access, managed_area_ids
 
 router = APIRouter(prefix="/api/permits", tags=["permits"])
@@ -99,6 +100,11 @@ def get_scoped_permit(db: Session, permit_id: int, current_user: User) -> WorkPe
     return permit
 
 
+def attach_renewal_count(permit: WorkPermit) -> WorkPermit:
+    permit.renewal_count = len(getattr(permit, "renewals", []) or [])
+    return permit
+
+
 @router.post("", response_model=WorkPermitOut, status_code=201)
 async def create_permit(
     type: PermitType = Form(...),
@@ -134,7 +140,7 @@ async def create_permit(
     db.add(permit)
     db.commit()
     db.refresh(permit)
-    return permit
+    return attach_renewal_count(permit)
 
 
 @router.get("", response_model=List[WorkPermitOut])
@@ -159,7 +165,7 @@ def list_permits(
 
     if changed:
         db.commit()
-    return permits
+    return [attach_renewal_count(permit) for permit in permits]
 
 
 @router.get("/warnings", response_model=List[WorkPermitWarning])
@@ -219,7 +225,7 @@ def get_permit(
     if refresh_permit_status(permit):
         db.commit()
         db.refresh(permit)
-    return permit
+    return attach_renewal_count(permit)
 
 
 @router.post("/manual", response_model=WorkPermitOut, status_code=201)
@@ -251,7 +257,7 @@ async def create_manual_permit(
     db.add(permit)
     db.commit()
     db.refresh(permit)
-    return permit
+    return attach_renewal_count(permit)
 
 
 @router.post("/{permit_id}/photo", response_model=WorkPermitOut)
@@ -265,7 +271,7 @@ async def upload_permit_photo(
     permit.photo_url = await save_permit_photo(photo, current_user)
     db.commit()
     db.refresh(permit)
-    return permit
+    return attach_renewal_count(permit)
 
 
 @router.post("/{permit_id}/renew", response_model=WorkPermitOut)
@@ -277,14 +283,48 @@ async def renew_permit(
 ):
     permit = get_scoped_permit(db, permit_id, current_user)
     start_time = get_workday_start()
+    old_start_time = permit.start_time
+    old_end_time = permit.end_time
+    old_photo_url = permit.photo_url
+    new_photo_url = old_photo_url
+    if photo:
+        new_photo_url = await save_permit_photo(photo, current_user)
+
     permit.start_time = start_time
     permit.end_time = calculate_end_time(permit.type, start_time)
     permit.status = PermitStatus.ACTIVE
-    if photo:
-        permit.photo_url = await save_permit_photo(photo, current_user)
+    permit.photo_url = new_photo_url
+    db.add(
+        WorkPermitRenewal(
+            permit_id=permit.id,
+            operator_id=current_user.id,
+            old_start_time=old_start_time,
+            old_end_time=old_end_time,
+            new_start_time=permit.start_time,
+            new_end_time=permit.end_time,
+            old_photo_url=old_photo_url,
+            new_photo_url=new_photo_url,
+            created_at=datetime.now(),
+        )
+    )
     db.commit()
     db.refresh(permit)
-    return permit
+    return attach_renewal_count(permit)
+
+
+@router.get("/{permit_id}/renewals", response_model=list[WorkPermitRenewalOut])
+def list_permit_renewals(
+    permit_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    permit = get_scoped_permit(db, permit_id, current_user)
+    return (
+        db.query(WorkPermitRenewal)
+        .filter(WorkPermitRenewal.permit_id == permit.id)
+        .order_by(WorkPermitRenewal.created_at.desc())
+        .all()
+    )
 
 
 @router.delete("/{permit_id}")

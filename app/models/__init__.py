@@ -9,6 +9,7 @@ from app.models.work_permit import (
     PermitStatus,
     PermitType,
     WorkPermit,
+    WorkPermitRenewal,
 )
 
 __all__ = [
@@ -25,6 +26,7 @@ __all__ = [
     "UserRole",
     "UserStatus",
     "WorkPermit",
+    "WorkPermitRenewal",
     "PermitType",
     "PermitStatus",
     "PERMIT_DURATION_HOURS",

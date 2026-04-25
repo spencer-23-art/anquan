@@ -76,6 +76,37 @@ def ensure_runtime_schema():
         if "managed_area_id" not in user_columns:
             conn.execute(text("ALTER TABLE users ADD COLUMN managed_area_id INTEGER"))
 
+        table_names = set(inspector.get_table_names())
+        if "fine_tickets" in table_names:
+            fine_columns = {column["name"] for column in inspector.get_columns("fine_tickets")}
+            if "area_id" not in fine_columns:
+                conn.execute(text("ALTER TABLE fine_tickets ADD COLUMN area_id INTEGER"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_fine_tickets_area_id ON fine_tickets (area_id)"))
+
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS work_permit_renewals (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    permit_id INTEGER NOT NULL,
+                    operator_id INTEGER NOT NULL,
+                    old_start_time DATETIME,
+                    old_end_time DATETIME,
+                    new_start_time DATETIME NOT NULL,
+                    new_end_time DATETIME NOT NULL,
+                    old_photo_url VARCHAR(500),
+                    new_photo_url VARCHAR(500),
+                    note TEXT,
+                    created_at DATETIME NOT NULL,
+                    FOREIGN KEY(permit_id) REFERENCES work_permits (id) ON DELETE CASCADE,
+                    FOREIGN KEY(operator_id) REFERENCES users (id)
+                )
+                """
+            )
+        )
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_work_permit_renewals_id ON work_permit_renewals (id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_work_permit_renewals_permit_id ON work_permit_renewals (permit_id)"))
+
 
 def rebuild_areas_table_if_unique():
     raw_conn = engine.raw_connection()

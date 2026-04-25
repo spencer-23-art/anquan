@@ -8,7 +8,11 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.config import settings
 from app.core.security import decode_access_token
-from app.models.user import User, UserStatus
+from app.models.fine_ticket import FineTicket
+from app.models.task import ChecklistItem, Task
+from app.models.user import User, UserRole, UserStatus
+from app.models.work_permit import WorkPermit
+from app.services.area_scope import is_super_admin, managed_area_ids
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 
@@ -40,10 +44,46 @@ def get_file_user(
     return user
 
 
+def can_access_upload(db: Session, user: User, upload_url: str) -> bool:
+    if is_super_admin(user):
+        return True
+
+    allowed_area_ids = managed_area_ids(db, user)
+    permit_query = db.query(WorkPermit).filter(WorkPermit.photo_url == upload_url)
+    task_query = (
+        db.query(Task)
+        .join(ChecklistItem, ChecklistItem.task_id == Task.id)
+        .filter(ChecklistItem.photo_url == upload_url)
+    )
+
+    if user.role == UserRole.ADMIN:
+        if not allowed_area_ids:
+            return False
+        if permit_query.filter(WorkPermit.area_id.in_(allowed_area_ids)).first():
+            return True
+        if task_query.filter(Task.area_id.in_(allowed_area_ids)).first():
+            return True
+        if (
+            db.query(FineTicket)
+            .filter(FineTicket.area_id.in_(allowed_area_ids))
+            .filter(FineTicket.document_path.like(f"%{upload_url.removeprefix('/uploads/')}%"))
+            .first()
+        ):
+            return True
+        return False
+
+    if permit_query.filter(WorkPermit.applicant_id == user.id).first():
+        return True
+    if task_query.filter(Task.assignee_id == user.id).first():
+        return True
+    return False
+
+
 @router.get("/{file_path:path}")
 def get_protected_file(
     file_path: str,
-    _user: User = Depends(get_file_user),
+    user: User = Depends(get_file_user),
+    db: Session = Depends(get_db),
 ):
     uploads_root = Path(settings.UPLOAD_DIR).resolve()
     target = (uploads_root / file_path).resolve()
@@ -52,5 +92,10 @@ def get_protected_file(
         raise HTTPException(status_code=400, detail="Invalid file path")
     if not target.exists() or not target.is_file():
         raise HTTPException(status_code=404, detail="File not found")
+
+    normalized_file_path = file_path.replace("\\", "/")
+    upload_url = f"/uploads/{normalized_file_path}"
+    if not can_access_upload(db, user, upload_url):
+        raise HTTPException(status_code=403, detail="No permission to access this file")
 
     return FileResponse(target)

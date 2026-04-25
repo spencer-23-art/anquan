@@ -27,7 +27,6 @@ RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ \
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app/ ./app/
-COPY .env ./
 
 # Copy frontend build output
 COPY --from=frontend-builder /app/frontend/dist /app/app/static

@@ -13,6 +13,7 @@ import {
 import api from "../lib/axios";
 
 const defaultForm = {
+  area_id: "",
   project_name: "",
   team_name: "",
   location: "",
@@ -23,6 +24,25 @@ const defaultForm = {
 
 const amountChoices = [200, 300, 500, 1000, 2000, 5000];
 
+function buildAreaOptions(areas) {
+  const childrenByParent = areas.reduce((acc, area) => {
+    const key = area.parent_id || "root";
+    acc[key] = [...(acc[key] || []), area];
+    return acc;
+  }, {});
+  const result = [];
+  const walk = (parentKey, depth) => {
+    (childrenByParent[parentKey] || [])
+      .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"))
+      .forEach((area) => {
+        result.push({ ...area, depth });
+        walk(area.id, depth + 1);
+      });
+  };
+  walk("root", 0);
+  return result;
+}
+
 export default function FineTicketCenter() {
   const [ticketType, setTicketType] = useState("safety");
   const [nextNumber, setNextNumber] = useState("--");
@@ -30,6 +50,7 @@ export default function FineTicketCenter() {
   const [summaryInput, setSummaryInput] = useState("");
   const [photos, setPhotos] = useState([]);
   const [history, setHistory] = useState([]);
+  const [areas, setAreas] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [generatingText, setGeneratingText] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -60,13 +81,28 @@ export default function FineTicketCenter() {
     };
   }, [ticketType]);
 
+  const areaOptions = useMemo(() => buildAreaOptions(areas), [areas]);
+
   useEffect(() => {
     loadNextNumber(ticketType);
   }, [ticketType]);
 
   useEffect(() => {
     loadHistory();
+    loadAreas();
   }, []);
+
+  const loadAreas = async () => {
+    try {
+      const { data } = await api.get("/areas");
+      const areaList = data || [];
+      setAreas(areaList);
+      setForm((prev) => ({ ...prev, area_id: prev.area_id || String(areaList[0]?.id || "") }));
+    } catch {
+      setMessage("鍖哄煙鍔犺浇澶辫触");
+      setMessageType("error");
+    }
+  };
 
   const loadNextNumber = async (type) => {
     try {
@@ -161,6 +197,9 @@ export default function FineTicketCenter() {
     try {
       const payload = new FormData();
       payload.append("penalty_type", ticketType);
+      if (form.area_id) {
+        payload.append("area_id", form.area_id);
+      }
       payload.append("project_name", form.project_name);
       payload.append("team_name", form.team_name);
       payload.append("location", form.location);
@@ -177,6 +216,7 @@ export default function FineTicketCenter() {
       setSummaryInput("");
       setForm((prev) => ({
         ...defaultForm,
+        area_id: prev.area_id,
         project_name: prev.project_name,
         discovery_date: new Date().toISOString().split("T")[0],
       }));
@@ -257,6 +297,19 @@ export default function FineTicketCenter() {
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-slate-700">????</span>
+              <select
+                className="w-full rounded-2xl border border-slate-300 px-4 py-3"
+                value={form.area_id}
+                onChange={(event) => updateForm("area_id", event.target.value)}
+              >
+                <option value="">?????</option>
+                {areaOptions.map((area) => (
+                  <option key={area.id} value={area.id}>{`${"  ".repeat(area.depth)}${area.name}`}</option>
+                ))}
+              </select>
+            </label>
             <label className="space-y-2">
               <span className="text-sm font-medium text-slate-700">项目名称</span>
               <input
@@ -457,7 +510,9 @@ export default function FineTicketCenter() {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="text-sm font-medium text-slate-900">{item.number}</div>
-                      <div className="mt-1 text-xs text-slate-500">{item.project_name}</div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {item.project_name}{item.area_name ? ` 路 ${item.area_name}` : ""}
+                      </div>
                     </div>
                     <button
                       type="button"
