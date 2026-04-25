@@ -49,11 +49,34 @@ function Resolve-SshCommand {
   throw "Missing command: ssh. Please install Windows OpenSSH Client or Git for Windows."
 }
 
+function Resolve-ScpCommand {
+  $pathCommand = Get-Command scp -ErrorAction SilentlyContinue
+  if ($pathCommand) {
+    return $pathCommand.Source
+  }
+
+  $candidates = @(
+    "C:\Program Files\Git\usr\bin\scp.exe",
+    "C:\Program Files\Git\bin\scp.exe",
+    "C:\Windows\System32\OpenSSH\scp.exe"
+  )
+
+  foreach ($candidate in $candidates) {
+    if (Test-Path $candidate) {
+      return $candidate
+    }
+  }
+
+  throw "Missing command: scp. Please install Windows OpenSSH Client or Git for Windows."
+}
+
 Require-Command git
 $sshCommand = Resolve-SshCommand
+$scpCommand = Resolve-ScpCommand
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $repoRoot
+$envFile = Join-Path $repoRoot ".env"
 
 Run-Step "Checking local git state" {
   $currentBranch = (git branch --show-current).Trim()
@@ -69,6 +92,19 @@ Run-Step "Checking local git state" {
   }
 
   git log --oneline -1
+}
+
+Run-Step "Checking local .env" {
+  if (-not (Test-Path $envFile)) {
+    throw "Missing .env. Create it locally before deployment."
+  }
+
+  $envText = Get-Content -Raw $envFile
+  foreach ($requiredKey in @("SECRET_KEY=", "ADMIN_USERNAME=", "ADMIN_PASSWORD=", "DATABASE_URL=")) {
+    if ($envText -notmatch [Regex]::Escape($requiredKey)) {
+      throw "Missing required .env key: $requiredKey"
+    }
+  }
 }
 
 if (-not $SkipPush) {
@@ -98,6 +134,11 @@ docker compose ps
 curl -fsS http://127.0.0.1:8000/api/health
 echo
 "@
+
+Run-Step "Uploading .env to server" {
+  & $sshCommand "$ServerUser@$ServerHost" "mkdir -p '$RemoteDir'"
+  & $scpCommand "$envFile" "$ServerUser@$ServerHost`:$RemoteDir/.env"
+}
 
 Run-Step "Deploying on server $ServerUser@$ServerHost" {
   $remoteScript | & $sshCommand "$ServerUser@$ServerHost" "bash -s"
