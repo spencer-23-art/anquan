@@ -366,9 +366,16 @@ def _numbered_answers(text: str) -> dict[int, str]:
     for number, marker in markers.items():
         normalized = re.sub(rf"(?<![\d.]){number}(?={marker})", f"{number}.", normalized)
     answers: dict[int, str] = {}
-    for match in re.finditer(r"([1-5])[\.\、:：]\s*(.*?)(?=(?:[1-5][\.\、:：])|$)", normalized):
+    for match in re.finditer(r"([1-5])[\.\、:：,，]\s*(.*?)(?=(?:[1-5][\.\、:：,，])|$)", normalized):
         answers[int(match.group(1))] = match.group(2).strip("，,。；; ")
     return answers
+
+
+def _latest_assistant_message(messages: list[dict]) -> str:
+    for message in reversed(messages):
+        if message["role"] == "assistant":
+            return str(message["content"]).strip()
+    return ""
 
 
 def _has_negative_answer(value: str) -> bool:
@@ -388,6 +395,7 @@ def _extract_number_before_unit(text: str, unit_pattern: str) -> Optional[float]
 def _extract_scene_facts(messages: list[dict]) -> dict:
     text = _joined_user_text(messages)
     latest = _latest_user_message(messages)
+    previous_assistant = _latest_assistant_message(messages)
     answers = _numbered_answers(latest)
 
     pit_depth = _extract_first_number(
@@ -427,8 +435,12 @@ def _extract_scene_facts(messages: list[dict]) -> dict:
 
     access_known = bool(CN_ACCESS_RE.search(text) or CN_ACCESS_RE.search(answers.get(3, "")))
     protection_known = bool(CN_PROTECTION_RE.search(text) or CN_PROTECTION_RE.search(answers.get(2, "")) or CN_PROTECTION_RE.search(answers.get(3, "")))
-    ventilation_known = bool(CN_VENT_RE.search(text) or _has_negative_answer(answers.get(4, "")))
-    environment_known = bool(CN_ENV_RE.search(text) or _has_negative_answer(answers.get(5, "")))
+    latest_is_negative = _has_negative_answer(latest)
+    latest_answers_environment = latest_is_negative and bool(re.search(r"(周边|高压线|地下管线|积水|车辆|障碍|交叉)", previous_assistant))
+    latest_answers_ventilation = latest_is_negative and bool(re.search(r"(通风|换气|气体|涂料|易燃|刺激)", previous_assistant))
+
+    ventilation_known = bool(CN_VENT_RE.search(text) or _has_negative_answer(answers.get(4, "")) or latest_answers_ventilation)
+    environment_known = bool(CN_ENV_RE.search(text) or _has_negative_answer(answers.get(5, "")) or latest_answers_environment)
 
     return {
         "text": text,
@@ -652,6 +664,28 @@ def _normalize_checklist_payload(messages: list[dict], parsed: dict) -> dict:
     }
 
 
+def _count_user_turns(messages: list[dict]) -> int:
+    return sum(1 for m in messages if m["role"] == "user")
+
+
+def _already_asked_questions(messages: list[dict]) -> set[str]:
+    """Collect question strings that appeared in previous assistant messages."""
+    asked: set[str] = set()
+    for m in messages:
+        if m["role"] != "assistant":
+            continue
+        try:
+            parsed = json.loads(_normalize_ai_content(m["content"]))
+        except Exception:
+            continue
+        content_text = str(parsed.get("content") or "")
+        for line in content_text.splitlines():
+            line = re.sub(r"^\d+[\.\、]\s*", "", line.strip())
+            if line:
+                asked.add(line)
+    return asked
+
+
 def chat(
     session_id: Optional[str],
     user_message: str,
@@ -665,13 +699,6 @@ def chat(
     messages = _sessions[session_id]
     messages.append({"role": "user", "content": user_message})
 
-    deterministic_question = _build_deterministic_question(messages)
-    if deterministic_question:
-        payload = {"type": "question", "content": deterministic_question}
-        content = json.dumps(payload, ensure_ascii=False)
-        messages.append({"role": "assistant", "content": content})
-        return session_id, "question", content
-
     provider = ai_config_service.get_runtime_provider(db, provider_id)
     if not provider:
         messages.pop()
@@ -684,6 +711,50 @@ def chat(
         messages.pop()
         raise ValueError("当前选中的 AI 接口配置不完整，请先在系统设置中补全地址和 API Key。")
 
+    # ── Build a transient hint injected into the API call (not persisted) ──
+    api_messages = list(messages)  # shallow copy
+    user_turns = _count_user_turns(messages)
+
+    if user_turns >= 3:
+        # After 3 rounds of user input, push the AI to finalize
+        api_messages.append({
+            "role": "system",
+            "content": (
+                "用户已经补充了足够多的信息。"
+                "请直接根据已有对话内容输出 checklist JSON，不要再追问。"
+                "如果某些细节确实不明确，按最常见的施工场景做合理假设并在 items 中标注。"
+            ),
+        })
+    elif user_turns >= 2:
+        # Second round: nudge toward finalizing, allow one last question
+        api_messages.append({
+            "role": "system",
+            "content": (
+                "这已经是用户的第二轮补充了。如果还缺关键信息（如高度、深度、人数），"
+                "最多再追问 1-2 个关键问题。如果信息已经基本够了，直接输出 checklist。"
+            ),
+        })
+    else:
+        # First round: inject deterministic hints as guidance, but let AI decide
+        deterministic_hint = _build_deterministic_question(messages)
+        if deterministic_hint:
+            already_asked = _already_asked_questions(messages)
+            # Filter out questions that were already asked
+            hint_lines = []
+            for line in deterministic_hint.splitlines():
+                clean = re.sub(r"^\d+[\.\、]\s*", "", line.strip())
+                if clean and clean not in already_asked:
+                    hint_lines.append(line)
+            if hint_lines:
+                api_messages.append({
+                    "role": "system",
+                    "content": (
+                        "以下是系统根据场景关键词分析出的可能缺失信息，供参考。"
+                        "请结合用户已提供的内容判断是否还需要追问，不要重复已回答的问题：\n"
+                        + "\n".join(hint_lines)
+                    ),
+                })
+
     try:
         with httpx.Client(timeout=120.0) as client:
             response = client.post(
@@ -694,7 +765,7 @@ def chat(
                 },
                 json={
                     "model": model,
-                    "messages": messages,
+                    "messages": api_messages,
                     "temperature": 0.1,
                     "max_tokens": 4000,
                 },
