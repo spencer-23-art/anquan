@@ -18,6 +18,9 @@ function Run-Step {
   Write-Host ""
   Write-Host "==> $Title" -ForegroundColor Cyan
   & $Command
+  if ($LASTEXITCODE -ne 0) {
+    throw "Step failed: $Title"
+  }
 }
 
 function Require-Command {
@@ -118,22 +121,27 @@ if ($NoCache) {
   $composeBuild = "docker compose build --no-cache"
 }
 
-$remoteScript = @"
+$remoteScriptTemplate = @'
 set -e
-cd "$RemoteDir"
+cd "__REMOTE_DIR__"
 mkdir -p /www/backup
 if [ -f anquan-data-sync-2026-04-23.zip ]; then
-  mv anquan-data-sync-2026-04-23.zip "/www/backup/anquan-data-sync-2026-04-23-\$(date +%Y%m%d%H%M%S).zip"
+  mv anquan-data-sync-2026-04-23.zip "/www/backup/anquan-data-sync-2026-04-23-$(date +%Y%m%d%H%M%S).zip"
 fi
-git fetch origin "$Branch"
-git checkout "$Branch"
-git pull --ff-only origin "$Branch"
-$composeBuild
+git fetch origin "__BRANCH__"
+git checkout "__BRANCH__"
+git pull --ff-only origin "__BRANCH__"
+__COMPOSE_BUILD__
 docker compose up -d
 docker compose ps
 curl -fsS http://127.0.0.1:8000/api/health
 echo
-"@
+'@
+
+$remoteScript = $remoteScriptTemplate `
+  -replace "__REMOTE_DIR__", $RemoteDir `
+  -replace "__BRANCH__", $Branch `
+  -replace "__COMPOSE_BUILD__", $composeBuild
 
 Run-Step "Uploading .env to server" {
   & $sshCommand "$ServerUser@$ServerHost" "mkdir -p '$RemoteDir'"

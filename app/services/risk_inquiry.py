@@ -336,6 +336,168 @@ def _build_deterministic_question(messages: list[dict]) -> Optional[str]:
     return "为一次性完成风险分析，请补充以下信息：\n" + "\n".join(lines)
 
 
+# Users often answer numbered follow-up questions in one sentence. Keep this
+# deterministic layer UTF-8 and conservative so answered facts are not repeated.
+CN_NEGATIVE_RE = re.compile(r"(没有|无|不存在|不涉及|不用|未涉及|否)")
+CN_PIT_RE = re.compile(r"(地坑|基坑|沟槽|坑内|坑底|井下|池内|受限空间)")
+CN_HEIGHT_RE = re.compile(r"(高处|登高|高空|临边|吊篮|脚手架|升降平台|登高车|梯子)")
+CN_HOT_RE = re.compile(r"(动火|焊接|切割|明火|气割|电焊)")
+CN_LIFT_RE = re.compile(r"(吊装|起重|吊车|塔吊|吊运)")
+CN_ELEC_RE = re.compile(r"(临时用电|配电箱|电缆|接电|带电)")
+CN_EXCAVATION_RE = re.compile(r"(动土|开挖|土方|挖沟|挖槽)")
+CN_PAINT_RE = re.compile(r"(刷墙|刷漆|喷漆|油漆|防腐|涂料)")
+CN_ACCESS_RE = re.compile(r"(脚手架|登高车|高空车|吊篮|梯子|升降平台|作业平台)")
+CN_PROTECTION_RE = re.compile(r"(安全带|生命绳|挂点|临边防护|围栏|警戒|监护|看护|专职)")
+CN_VENT_RE = re.compile(r"(通风|换气|送风|排风|气体检测|气体监测|检测仪|有毒|有害|易燃|刺激)")
+CN_ENV_RE = re.compile(r"(高压线|地下管线|管线|积水|淤泥|车辆|通行|障碍|交叉作业)")
+
+
+def _numbered_answers(text: str) -> dict[int, str]:
+    normalized = re.sub(r"\s+", "", str(text or ""))
+    # Accept compact answers like "1.5米，2有监护，5人施工，3用脚手架4没有5没有".
+    # Avoid treating "5人" as question 5 by only inserting markers before likely
+    # answer words for each question.
+    markers = {
+        2: r"(?:有|没|无|专职|\d+人)",
+        3: r"(?:坑|地面|用|脚手架|登高|吊篮|梯子|平台)",
+        4: r"(?:没有|无|有|通风|换气|气体|涂料|油漆)",
+        5: r"(?:没有|无|有高压|高压|地下|积水|车辆|障碍|交叉)",
+    }
+    for number, marker in markers.items():
+        normalized = re.sub(rf"(?<![\d.]){number}(?={marker})", f"{number}.", normalized)
+    answers: dict[int, str] = {}
+    for match in re.finditer(r"([1-5])[\.\、:：]\s*(.*?)(?=(?:[1-5][\.\、:：])|$)", normalized):
+        answers[int(match.group(1))] = match.group(2).strip("，,。；; ")
+    return answers
+
+
+def _has_negative_answer(value: str) -> bool:
+    return bool(CN_NEGATIVE_RE.search(str(value or "")))
+
+
+def _extract_number_before_unit(text: str, unit_pattern: str) -> Optional[float]:
+    match = re.search(rf"(\d+(?:\.\d+)?)\s*{unit_pattern}", str(text or ""))
+    if not match:
+        return None
+    try:
+        return float(match.group(1))
+    except ValueError:
+        return None
+
+
+def _extract_scene_facts(messages: list[dict]) -> dict:
+    text = _joined_user_text(messages)
+    latest = _latest_user_message(messages)
+    answers = _numbered_answers(latest)
+
+    pit_depth = _extract_first_number(
+        text,
+        [
+            r"(?:地坑|基坑|沟槽|坑|井|池|深度)[^\d]{0,12}(\d+(?:\.\d+)?)\s*(?:米|m)",
+            r"(\d+(?:\.\d+)?)\s*(?:米|m)[^\n，。；;]{0,12}(?:地坑|基坑|沟槽|坑|井|池)",
+        ],
+    )
+    height = _extract_first_number(
+        text,
+        [
+            r"(?:高处|登高|高空|高度|离地)[^\d]{0,12}(\d+(?:\.\d+)?)\s*(?:米|m)",
+            r"(\d+(?:\.\d+)?)\s*(?:米|m)[^\n，。；;]{0,12}(?:高处|登高|高空|离地)",
+        ],
+    )
+    workers = _extract_worker_count(text) or None
+
+    explicit_height_text = bool(re.search(r"(?:高处|登高|高空|高度|离地)[^\d]{0,12}\d+(?:\.\d+)?\s*(?:米|m)", text))
+
+    if 1 in answers:
+        answer_depth = _extract_number_before_unit(answers[1], r"(?:米|m)")
+        if answer_depth is not None:
+            pit_depth = answer_depth
+            if CN_HEIGHT_RE.search(answers[1]):
+                height = height if height is not None else answer_depth
+            elif not explicit_height_text:
+                height = None
+    if 2 in answers:
+        answer_workers = re.search(r"(\d+)\s*(?:人|个人)", answers[2])
+        if answer_workers:
+            workers = int(answer_workers.group(1))
+    if workers is None:
+        worker_match = re.search(r"(\d+)\s*(?:人|个人)", text)
+        if worker_match:
+            workers = int(worker_match.group(1))
+
+    access_known = bool(CN_ACCESS_RE.search(text) or CN_ACCESS_RE.search(answers.get(3, "")))
+    protection_known = bool(CN_PROTECTION_RE.search(text) or CN_PROTECTION_RE.search(answers.get(2, "")) or CN_PROTECTION_RE.search(answers.get(3, "")))
+    ventilation_known = bool(CN_VENT_RE.search(text) or _has_negative_answer(answers.get(4, "")))
+    environment_known = bool(CN_ENV_RE.search(text) or _has_negative_answer(answers.get(5, "")))
+
+    return {
+        "text": text,
+        "workers": workers,
+        "height": height,
+        "pit_depth": pit_depth,
+        "has_height": bool(CN_HEIGHT_RE.search(text)),
+        "has_pit": bool(CN_PIT_RE.search(text)),
+        "has_hot_work": bool(CN_HOT_RE.search(text)),
+        "has_lifting": bool(CN_LIFT_RE.search(text)),
+        "has_electrical": bool(CN_ELEC_RE.search(text)),
+        "has_excavation": bool(CN_EXCAVATION_RE.search(text)),
+        "has_paint": bool(CN_PAINT_RE.search(text)),
+        "confined_hint": bool(re.search(r"(受限空间|有限空间|池内|井下|坑内)", text)),
+        "access_known": access_known,
+        "protection_known": protection_known,
+        "ventilation_known": ventilation_known,
+        "environment_known": environment_known,
+        "mentions_negative": bool(CN_NEGATIVE_RE.search(text)),
+    }
+
+
+def _build_deterministic_question(messages: list[dict]) -> Optional[str]:
+    facts = _extract_scene_facts(messages)
+    questions: list[str] = []
+
+    has_known_work = any(
+        [
+            facts["has_height"],
+            facts["has_pit"],
+            facts["has_hot_work"],
+            facts["has_lifting"],
+            facts["has_electrical"],
+            facts["has_excavation"],
+            facts["has_paint"],
+            facts["confined_hint"],
+        ]
+    )
+
+    if not has_known_work:
+        _add_question(questions, "具体是什么作业，作业位置在哪里？")
+        _add_question(questions, "作业高度或坑、井、池、沟槽深度大约多少米？")
+        _add_question(questions, "计划几个人施工，是否有人专职监护？")
+        _add_question(questions, "使用脚手架、登高车、吊篮、梯子还是其他机具？")
+        _add_question(questions, "周边是否有高压线、地下管线、积水淤泥、车辆通行、障碍物或交叉作业？")
+
+    if facts["has_pit"] and facts["pit_depth"] is None:
+        _add_question(questions, "地坑、基坑或沟槽深度大约多少米？")
+    if facts["has_height"] and facts["height"] is None and not facts["has_pit"]:
+        _add_question(questions, "实际离地作业高度大约多少米？")
+    if facts["workers"] is None:
+        _add_question(questions, "现场计划几个人施工，是否有人专职监护？")
+    if (facts["has_pit"] or facts["has_height"] or (facts["pit_depth"] or 0) >= 2) and not facts["access_known"]:
+        _add_question(questions, "人员是在坑底地面作业，还是使用脚手架、登高车、吊篮、梯子等方式作业？请一次说明登高或作业平台方式。")
+    if (facts["has_height"] or (facts["pit_depth"] or 0) >= 2) and not facts["protection_known"]:
+        _add_question(questions, "是否设置安全带挂点、临边防护、围栏警戒，并安排现场监护？")
+    if (facts["has_paint"] and (facts["has_pit"] or facts["confined_hint"])) and not facts["ventilation_known"]:
+        _add_question(questions, "坑内或受限位置刷墙时，是否已做通风换气、气体检测，涂料是否易燃或有刺激性？")
+    if (facts["has_pit"] or facts["has_height"] or facts["has_excavation"]) and not facts["environment_known"]:
+        _add_question(questions, "作业周边是否有高压线、地下管线、积水淤泥、车辆通行、障碍物或其他交叉作业？")
+
+    if not questions:
+        return None
+
+    selected = questions[:5]
+    lines = [f"{index}. {question}" for index, question in enumerate(selected, start=1)]
+    return "为一次性完成风险分析，请补充以下信息：\n" + "\n".join(lines)
+
+
 def _infer_hot_work_level(text: str) -> str:
     if "一级动火" in text or "1级动火" in text:
         return "hot_work_level1"
