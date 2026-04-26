@@ -668,19 +668,6 @@ def _count_user_turns(messages: list[dict]) -> int:
     return sum(1 for m in messages if m["role"] == "user")
 
 
-def _has_prior_question(messages: list[dict]) -> bool:
-    for message in messages:
-        if message["role"] != "assistant":
-            continue
-        try:
-            parsed = json.loads(_normalize_ai_content(message["content"]))
-        except Exception:
-            continue
-        if parsed.get("type") == "question":
-            return True
-    return False
-
-
 def _already_asked_questions(messages: list[dict]) -> set[str]:
     """Collect question strings that appeared in previous assistant messages."""
     asked: set[str] = set()
@@ -699,34 +686,6 @@ def _already_asked_questions(messages: list[dict]) -> set[str]:
     return asked
 
 
-def _analysis_control_prompt(messages: list[dict]) -> str:
-    facts = _extract_scene_facts(messages)
-    facts_text = json.dumps(
-        {
-            "workers": facts.get("workers"),
-            "height": facts.get("height"),
-            "pit_depth": facts.get("pit_depth"),
-            "has_height": facts.get("has_height"),
-            "has_pit": facts.get("has_pit"),
-            "has_paint": facts.get("has_paint"),
-            "access_known": facts.get("access_known"),
-            "protection_known": facts.get("protection_known"),
-            "ventilation_known": facts.get("ventilation_known"),
-            "environment_known": facts.get("environment_known"),
-        },
-        ensure_ascii=False,
-    )
-    return (
-        "你必须智能理解用户的自然语言补充，不要要求用户必须按固定格式回答。"
-        "用户可能用逗号、顿号、编号、口语、否定词一次回答多个问题。"
-        "请把这些内容综合成已知事实，不要重复追问已经回答过的问题。"
-        f"系统辅助抽取到的事实如下，仅供参考：{facts_text}。"
-        "如果已经有作业内容、位置/高度或深度、人数、主要机具或周边环境信息，"
-        "即使不完美，也请直接输出 checklist JSON。"
-        "只有在完全无法判断作业类型或关键危险源时，才允许一次性追问最多 2 个问题。"
-    )
-
-
 def chat(
     session_id: Optional[str],
     user_message: str,
@@ -743,44 +702,55 @@ def chat(
     provider = ai_config_service.get_runtime_provider(db, provider_id)
     if not provider:
         messages.pop()
-        raise ValueError("AI ???????????????????? AI ???")
+        raise ValueError("AI 接口尚未配置，请先在系统设置中补充可用的 AI 服务。")
 
     base_url = ai_config_service.normalize_base_url(provider.get("base_url", ""))
     api_key = str(provider.get("api_key") or "").strip()
     model = str(provider.get("model") or "deepseek-chat").strip()
     if not base_url or not api_key:
         messages.pop()
-        raise ValueError("????? AI ????????????????????? API Key?")
+        raise ValueError("当前选中的 AI 接口配置不完整，请先在系统设置中补全地址和 API Key。")
 
-    api_messages = list(messages)
+    # ── Build a transient hint injected into the API call (not persisted) ──
+    api_messages = list(messages)  # shallow copy
     user_turns = _count_user_turns(messages)
-    prior_question = _has_prior_question(messages[:-1])
-    api_messages.append({"role": "system", "content": _analysis_control_prompt(messages)})
 
-    if prior_question or user_turns >= 2:
+    if user_turns >= 3:
+        # After 3 rounds of user input, push the AI to finalize
         api_messages.append({
             "role": "system",
             "content": (
-                "???????????????????? checklist JSON???????"
-                "????????????????????????????????????????"
+                "用户已经补充了足够多的信息。"
+                "请直接根据已有对话内容输出 checklist JSON，不要再追问。"
+                "如果某些细节确实不明确，按最常见的施工场景做合理假设并在 items 中标注。"
+            ),
+        })
+    elif user_turns >= 2:
+        # Second round: nudge toward finalizing, allow one last question
+        api_messages.append({
+            "role": "system",
+            "content": (
+                "这已经是用户的第二轮补充了。如果还缺关键信息（如高度、深度、人数），"
+                "最多再追问 1-2 个关键问题。如果信息已经基本够了，直接输出 checklist。"
             ),
         })
     else:
+        # First round: inject deterministic hints as guidance, but let AI decide
         deterministic_hint = _build_deterministic_question(messages)
         if deterministic_hint:
             already_asked = _already_asked_questions(messages)
+            # Filter out questions that were already asked
             hint_lines = []
             for line in deterministic_hint.splitlines():
-                clean = re.sub(r"^\d+[\.?]\s*", "", line.strip())
+                clean = re.sub(r"^\d+[\.\、]\s*", "", line.strip())
                 if clean and clean not in already_asked:
                     hint_lines.append(line)
             if hint_lines:
                 api_messages.append({
                     "role": "system",
                     "content": (
-                        "????????????????????????????"
-                        "???????????????????????????????"
-                        "???????????????? checklist JSON?\n"
+                        "以下是系统根据场景关键词分析出的可能缺失信息，供参考。"
+                        "请结合用户已提供的内容判断是否还需要追问，不要重复已回答的问题：\n"
                         + "\n".join(hint_lines)
                     ),
                 })
@@ -826,14 +796,15 @@ def chat(
     except httpx.HTTPStatusError as exc:
         messages.pop()
         raise ValueError(
-            f"AI ??????? {exc.response.status_code}??{_extract_upstream_error_text(exc.response)}"
+            f"AI 请求失败（上游 {exc.response.status_code}）：{_extract_upstream_error_text(exc.response)}"
         ) from exc
     except httpx.RequestError as exc:
         messages.pop()
-        raise ValueError(f"AI ???????{exc}") from exc
+        raise ValueError(f"AI 网络请求失败：{exc}") from exc
     except Exception as exc:
         messages.pop()
-        raise ValueError(f"AI ?????{exc}") from exc
+        raise ValueError(f"AI 服务异常：{exc}") from exc
+
 
 def get_session_messages(session_id: str) -> list[dict]:
     return _sessions.get(session_id, [])
