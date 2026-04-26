@@ -369,7 +369,7 @@ export default function AIChatTask() {
   };
 
   return (
-    <div className="space-y-4 sm:space-y-6">
+    <div className="ai-risk-page space-y-4 sm:space-y-6">
       <section className="rounded-[28px] border border-emerald-100 bg-[linear-gradient(135deg,#f4fbf7_0%,#ecf7ff_52%,#fff8ee_100%)] p-4 shadow-[0_10px_35px_rgba(15,23,42,0.08)] dark:border-border dark:bg-[linear-gradient(135deg,#27312f_0%,#26313a_52%,#332f27_100%)] sm:p-6">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
