@@ -6,7 +6,6 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Iterable
 
-import httpx
 from docx import Document
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -18,7 +17,6 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models.fine_ticket import FineTicketType
-from app.models.system_config import SystemConfig
 from app.services import ai_config_service
 
 DOCS_DIR = Path(settings.UPLOAD_DIR) / "fines" / "docs"
@@ -131,11 +129,6 @@ def amount_to_chinese(amount: Decimal) -> str:
     return f"{integer_text}元{decimal_text}"
 
 
-def _config_value(db: Session, key: str) -> str:
-    item = db.query(SystemConfig).filter(SystemConfig.key == key).first()
-    return item.value if item else ""
-
-
 def _ticket_title(ticket_type: FineTicketType) -> str:
     if ticket_type == FineTicketType.QUALITY:
         return "工程质量罚款通知单"
@@ -179,13 +172,6 @@ def generate_description(
     discovery_date: str,
     ticket_type: FineTicketType,
 ) -> str:
-    provider = ai_config_service.get_runtime_provider(db)
-    api_key = str((provider or {}).get("api_key") or _config_value(db, SystemConfig.AI_API_KEY)).strip()
-    base_url = ai_config_service.normalize_base_url(
-        str((provider or {}).get("base_url") or _config_value(db, SystemConfig.AI_BASE_URL) or "https://api.siliconflow.cn/v1")
-    )
-    model = str((provider or {}).get("model") or _config_value(db, SystemConfig.AI_MODEL) or "deepseek-ai/DeepSeek-V3").strip()
-
     fallback = _fallback_description(
         user_input=user_input,
         project_name=project_name,
@@ -194,8 +180,6 @@ def generate_description(
         discovery_date=discovery_date,
         ticket_type=ticket_type,
     )
-    if not api_key:
-        return fallback
 
     ticket_name = _ticket_name(ticket_type)
     rule_reference = _resolve_rule_reference(user_input, ticket_type)
@@ -227,25 +211,16 @@ def generate_description(
     )
 
     try:
-        response = httpx.post(
-            f"{base_url}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                "temperature": 0.4,
-                "max_tokens": 700,
-            },
-            timeout=60,
+        _used_provider, payload = ai_config_service.request_chat_completion(
+            db,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.4,
+            max_tokens=700,
+            timeout=60.0,
         )
-        response.raise_for_status()
-        payload = response.json()
         content = payload["choices"][0]["message"]["content"].strip()
         if not content:
             return fallback

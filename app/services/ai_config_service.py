@@ -2,6 +2,7 @@ import json
 import uuid
 from typing import Any
 
+import httpx
 from sqlalchemy.orm import Session
 
 from app.models.system_config import SystemConfig
@@ -202,3 +203,100 @@ def get_runtime_provider(db: Session, provider_id: str | None = None) -> dict[st
             return selected
 
     return enabled_providers[0]
+
+
+def get_runtime_providers(db: Session, provider_id: str | None = None) -> list[dict[str, Any]]:
+    providers, active_provider_id = load_provider_configs(db)
+    enabled_providers = [
+        item
+        for item in providers
+        if item.get("enabled", True)
+        and str(item.get("base_url") or "").strip()
+        and str(item.get("api_key") or "").strip()
+        and str(item.get("model") or "").strip()
+    ]
+    if not enabled_providers:
+        return []
+
+    preferred_id = provider_id or active_provider_id
+    ordered: list[dict[str, Any]] = []
+    if preferred_id:
+        preferred = next((item for item in enabled_providers if item["id"] == preferred_id), None)
+        if preferred:
+            ordered.append(preferred)
+
+    for provider in enabled_providers:
+        if provider not in ordered:
+            ordered.append(provider)
+    return ordered
+
+
+def _extract_error_text(response: httpx.Response) -> str:
+    try:
+        data = response.json()
+    except ValueError:
+        return response.text.strip() or "empty response body"
+
+    if isinstance(data, dict):
+        error = data.get("error")
+        if isinstance(error, dict):
+            return str(error.get("message") or error.get("msg") or json.dumps(error, ensure_ascii=False))
+        if error:
+            return str(error)
+        if data.get("message"):
+            return str(data["message"])
+    return json.dumps(data, ensure_ascii=False)
+
+
+def request_chat_completion(
+    db: Session,
+    *,
+    messages: list[dict[str, Any]],
+    provider_id: str | None = None,
+    temperature: float = 0.1,
+    max_tokens: int = 4000,
+    timeout: float = 120.0,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Try the preferred AI provider first, then fall back to other enabled providers."""
+    providers = get_runtime_providers(db, provider_id)
+    if not providers:
+        raise ValueError("AI 接口尚未配置，请先在系统设置中补充可用的 AI 服务。")
+
+    errors: list[str] = []
+    with httpx.Client(timeout=timeout) as client:
+        for provider in providers:
+            provider_name = provider.get("name") or provider.get("model") or provider.get("id")
+            base_url = normalize_base_url(provider.get("base_url", ""))
+            api_key = str(provider.get("api_key") or "").strip()
+            model = str(provider.get("model") or "").strip()
+            try:
+                response = client.post(
+                    f"{base_url}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": model,
+                        "messages": messages,
+                        "temperature": temperature,
+                        "max_tokens": max_tokens,
+                    },
+                )
+                if response.status_code != 200:
+                    errors.append(f"{provider_name}: HTTP {response.status_code} {_extract_error_text(response)}")
+                    continue
+                try:
+                    payload = response.json()
+                except ValueError:
+                    errors.append(f"{provider_name}: 返回内容不是有效 JSON")
+                    continue
+                if not isinstance(payload, dict) or not payload.get("choices"):
+                    errors.append(f"{provider_name}: 返回内容缺少 choices")
+                    continue
+                return provider, payload
+            except httpx.RequestError as exc:
+                errors.append(f"{provider_name}: {exc}")
+                continue
+
+    raise ValueError("所有已启用 AI 接口都不可用：" + "；".join(errors))

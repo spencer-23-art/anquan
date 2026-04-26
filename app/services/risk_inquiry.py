@@ -3,7 +3,6 @@ import re
 import uuid
 from typing import Optional
 
-import httpx
 from sqlalchemy.orm import Session
 
 from app.services import ai_config_service
@@ -136,23 +135,6 @@ def _normalize_ai_content(content: str) -> str:
     if text.endswith("```"):
         text = text[:-3]
     return text.strip()
-
-
-def _extract_upstream_error_text(response: httpx.Response) -> str:
-    try:
-        data = response.json()
-    except ValueError:
-        return response.text.strip() or "empty response body"
-
-    if isinstance(data, dict):
-        error = data.get("error")
-        if isinstance(error, dict):
-            return str(error.get("message") or error.get("msg") or json.dumps(error, ensure_ascii=False))
-        if error:
-            return str(error)
-        if data.get("message"):
-            return str(data["message"])
-    return json.dumps(data, ensure_ascii=False)
 
 
 def _joined_user_text(messages: list[dict]) -> str:
@@ -699,18 +681,6 @@ def chat(
     messages = _sessions[session_id]
     messages.append({"role": "user", "content": user_message})
 
-    provider = ai_config_service.get_runtime_provider(db, provider_id)
-    if not provider:
-        messages.pop()
-        raise ValueError("AI 接口尚未配置，请先在系统设置中补充可用的 AI 服务。")
-
-    base_url = ai_config_service.normalize_base_url(provider.get("base_url", ""))
-    api_key = str(provider.get("api_key") or "").strip()
-    model = str(provider.get("model") or "deepseek-chat").strip()
-    if not base_url or not api_key:
-        messages.pop()
-        raise ValueError("当前选中的 AI 接口配置不完整，请先在系统设置中补全地址和 API Key。")
-
     # ── Build a transient hint injected into the API call (not persisted) ──
     api_messages = list(messages)  # shallow copy
     user_turns = _count_user_turns(messages)
@@ -755,52 +725,35 @@ def chat(
                     ),
                 })
 
+
     try:
-        with httpx.Client(timeout=120.0) as client:
-            response = client.post(
-                f"{base_url}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": model,
-                    "messages": api_messages,
-                    "temperature": 0.1,
-                    "max_tokens": 4000,
-                },
-            )
-            if response.status_code != 200:
-                response.raise_for_status()
+        _used_provider, result = ai_config_service.request_chat_completion(
+            db,
+            messages=api_messages,
+            provider_id=provider_id,
+            temperature=0.1,
+            max_tokens=4000,
+            timeout=120.0,
+        )
+        raw_content = result["choices"][0]["message"]["content"]
+        ai_content = _normalize_ai_content(raw_content)
 
-            result = response.json()
-            raw_content = result["choices"][0]["message"]["content"]
-            ai_content = _normalize_ai_content(raw_content)
+        try:
+            parsed = json.loads(ai_content)
+        except json.JSONDecodeError:
+            parsed = {"type": "question", "content": ai_content}
 
-            try:
-                parsed = json.loads(ai_content)
-            except json.JSONDecodeError:
-                parsed = {"type": "question", "content": ai_content}
+        if parsed.get("type") == "checklist":
+            normalized = _normalize_checklist_payload(messages, parsed)
+        else:
+            normalized = {
+                "type": "question",
+                "content": str(parsed.get("content") or ai_content).strip(),
+            }
 
-            if parsed.get("type") == "checklist":
-                normalized = _normalize_checklist_payload(messages, parsed)
-            else:
-                normalized = {
-                    "type": "question",
-                    "content": str(parsed.get("content") or ai_content).strip(),
-                }
-
-            content = json.dumps(normalized, ensure_ascii=False)
-            messages.append({"role": "assistant", "content": content})
-            return session_id, normalized["type"], content
-    except httpx.HTTPStatusError as exc:
-        messages.pop()
-        raise ValueError(
-            f"AI 请求失败（上游 {exc.response.status_code}）：{_extract_upstream_error_text(exc.response)}"
-        ) from exc
-    except httpx.RequestError as exc:
-        messages.pop()
-        raise ValueError(f"AI 网络请求失败：{exc}") from exc
+        content = json.dumps(normalized, ensure_ascii=False)
+        messages.append({"role": "assistant", "content": content})
+        return session_id, normalized["type"], content
     except Exception as exc:
         messages.pop()
         raise ValueError(f"AI 服务异常：{exc}") from exc
