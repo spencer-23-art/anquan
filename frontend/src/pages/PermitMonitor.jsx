@@ -117,8 +117,10 @@ export default function PermitMonitor() {
   const [showModal, setShowModal] = useState(false);
   const [message, setMessage] = useState("");
   const [photoAction, setPhotoAction] = useState(null);
+  const [previewPhoto, setPreviewPhoto] = useState(null);
   const fileInputRef = useRef(null);
   const manualPhotoRef = useRef(null);
+  const photoClickTimerRef = useRef(null);
   const [form, setForm] = useState({
     type: "hot_work_level1",
     area_id: "",
@@ -150,6 +152,14 @@ export default function PermitMonitor() {
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (photoClickTimerRef.current) {
+        window.clearTimeout(photoClickTimerRef.current);
+      }
+    };
   }, []);
 
   const sortedPermits = useMemo(() => {
@@ -190,6 +200,32 @@ export default function PermitMonitor() {
   const openPhotoPicker = (permitId, action) => {
     setPhotoAction({ permitId, action });
     fileInputRef.current?.click();
+  };
+
+  const handlePhotoClick = (permitId) => {
+    if (photoClickTimerRef.current) {
+      window.clearTimeout(photoClickTimerRef.current);
+    }
+    photoClickTimerRef.current = window.setTimeout(() => {
+      openPhotoPicker(permitId, "photo");
+      photoClickTimerRef.current = null;
+    }, 220);
+  };
+
+  const handlePhotoDoubleClick = (permit, meta) => {
+    if (photoClickTimerRef.current) {
+      window.clearTimeout(photoClickTimerRef.current);
+      photoClickTimerRef.current = null;
+    }
+    if (!permit.photo_url) {
+      openPhotoPicker(permit.id, "photo");
+      return;
+    }
+    setPreviewPhoto({
+      url: buildProtectedFileUrl(permit.photo_url),
+      title: meta.label,
+      area: permit.area?.name || "未分配区域",
+    });
   };
 
   const handlePhotoSelected = async (event) => {
@@ -301,9 +337,17 @@ export default function PermitMonitor() {
                   </div>
                 </div>
 
-                <button type="button" onClick={() => openPhotoPicker(permit.id, "photo")} className="block w-full overflow-hidden border-t border-black/5 bg-black/5 text-left">
+                <button
+                  type="button"
+                  onClick={() => handlePhotoClick(permit.id)}
+                  onDoubleClick={() => handlePhotoDoubleClick(permit, meta)}
+                  className="block w-full overflow-hidden border-t border-black/5 bg-black/5 text-left"
+                  title="单击重新上传，双击放大查看"
+                >
                   {permit.photo_url ? (
-                    <img src={buildProtectedFileUrl(permit.photo_url)} alt={meta.label} className="h-72 w-full object-cover transition hover:scale-[1.01]" />
+                    <div className="flex h-72 w-full items-center justify-center bg-slate-950/5">
+                      <img src={buildProtectedFileUrl(permit.photo_url)} alt={meta.label} className="h-full w-full object-contain" />
+                    </div>
                   ) : (
                     <div className="flex h-72 flex-col items-center justify-center gap-2 border-t border-dashed border-slate-300 bg-white/50 px-4 text-sm text-slate-400">
                       <Camera size={24} />
@@ -382,6 +426,28 @@ export default function PermitMonitor() {
                 <button type="submit" disabled={saving} className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-60">{saving ? "创建中..." : "创建票证"}</button>
               </div>
             </form>
+          </div>
+        </div>
+      ) : null}
+
+      {previewPhoto ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm"
+          onClick={() => setPreviewPhoto(null)}
+        >
+          <div className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-center justify-between gap-4 border-b border-slate-200 px-4 py-3">
+              <div>
+                <div className="text-sm font-semibold text-slate-900">{previewPhoto.title}</div>
+                <div className="mt-1 text-xs text-slate-500">{previewPhoto.area}</div>
+              </div>
+              <button type="button" onClick={() => setPreviewPhoto(null)} className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="flex min-h-0 flex-1 items-center justify-center bg-slate-950 p-3">
+              <img src={previewPhoto.url} alt={previewPhoto.title} className="max-h-[78vh] max-w-full object-contain" />
+            </div>
           </div>
         </div>
       ) : null}
