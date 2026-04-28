@@ -134,7 +134,6 @@ export default function AIChatTask() {
   const [assignees, setAssignees] = useState([]);
   const [optionsLoading, setOptionsLoading] = useState(true);
   const [configInfo, setConfigInfo] = useState(null);
-  const [selectedProviderId, setSelectedProviderId] = useState("");
   const [pageMessage, setPageMessage] = useState("");
   const [selectedRiskIndexes, setSelectedRiskIndexes] = useState([]);
   const [selectedPermitIndexes, setSelectedPermitIndexes] = useState([]);
@@ -169,7 +168,6 @@ export default function AIChatTask() {
         setAreas(areaList);
         setAssignees(assigneeList);
         setConfigInfo(runtime);
-        setSelectedProviderId(runtime?.active_provider_id || runtime?.providers?.[0]?.id || "");
         setCreateForm((current) => ({
           area_id: current.area_id || String(areaList[0]?.id || ""),
           assignee_id: current.assignee_id || String(assigneeList[0]?.id || ""),
@@ -257,7 +255,6 @@ export default function AIChatTask() {
       const { data } = await api.post("/ai/chat", {
         session_id: sessionId,
         message: userMessage.content,
-        provider_id: selectedProviderId || undefined,
       });
 
       setSessionId(data.session_id);
@@ -370,30 +367,16 @@ export default function AIChatTask() {
 
   return (
     <div className="ai-risk-page space-y-4 sm:space-y-6">
-      <section className="rounded-[28px] border border-emerald-100 bg-[linear-gradient(135deg,#f4fbf7_0%,#ecf7ff_52%,#fff8ee_100%)] p-4 shadow-[0_10px_35px_rgba(15,23,42,0.08)] dark:border-border dark:bg-[linear-gradient(135deg,#27312f_0%,#26313a_52%,#332f27_100%)] sm:p-6">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <div className="inline-flex items-center gap-2 rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium tracking-wide text-emerald-700">
-              <Sparkles size={14} />
-              AI 风险分析
-            </div>
-            <h1 className="mt-4 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
-              从作业描述直接生成隐患检查草稿
-            </h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
-              AI 不只会说“有什么风险”，还会补充“安全员怎么查、要拍什么照片、发现问题后怎么整改”，减少现场反复追问。
-            </p>
+      <section className="rounded-[24px] border border-emerald-100 bg-[linear-gradient(135deg,#f4fbf7_0%,#ecf7ff_58%,#fff8ee_100%)] px-4 py-3 shadow-[0_8px_24px_rgba(15,23,42,0.06)] dark:border-border dark:bg-[linear-gradient(135deg,#27312f_0%,#26313a_58%,#332f27_100%)] sm:px-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="inline-flex w-fit items-center gap-2 rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium tracking-wide text-emerald-700">
+            <Sparkles size={14} />
+            AI 风险分析
           </div>
 
-          <div className="grid gap-3 text-sm sm:grid-cols-2">
-            <div className="rounded-2xl border border-white/80 bg-white/80 px-4 py-3 shadow-sm backdrop-blur">
-              <div className="text-slate-500">当前模型</div>
-              <div className="mt-1 font-medium text-slate-900">{configInfo?.ai_model || "未配置"}</div>
-            </div>
-            <div className="rounded-2xl border border-white/80 bg-white/80 px-4 py-3 shadow-sm backdrop-blur">
-              <div className="text-slate-500">接口状态</div>
-              <div className="mt-1 font-medium text-emerald-700">{configInfo?.ai_base_url ? "已连接" : "待配置"}</div>
-            </div>
+          <div className="rounded-2xl border border-white/80 bg-white/80 px-4 py-2 text-sm shadow-sm backdrop-blur">
+            <span className="text-slate-500">接口状态：</span>
+            <span className="font-medium text-emerald-700">{configInfo?.ai_base_url ? "已连接" : "待配置"}</span>
           </div>
         </div>
       </section>
@@ -401,28 +384,6 @@ export default function AIChatTask() {
       {pageMessage ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           {pageMessage}
-        </div>
-      ) : null}
-
-      {(configInfo?.providers || []).length > 1 ? (
-        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <div className="text-sm font-medium text-slate-900">当前模型</div>
-              <div className="mt-1 text-xs text-slate-500">如果你配置了多个接口，可以切换当前这一轮分析使用的模型。</div>
-            </div>
-            <select
-              className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 md:min-w-[280px]"
-              value={selectedProviderId}
-              onChange={(event) => setSelectedProviderId(event.target.value)}
-            >
-              {(configInfo?.providers || []).map((provider) => (
-                <option key={provider.id} value={provider.id}>
-                  {(provider.name || "未命名接口") + " · " + (provider.model || "未配置模型")}
-                </option>
-              ))}
-            </select>
-          </div>
         </div>
       ) : null}
 
