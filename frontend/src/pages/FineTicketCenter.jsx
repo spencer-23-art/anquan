@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import api from "../lib/axios";
+import { compressImage } from "../lib/imageCompressor";
 
 const defaultForm = {
   area_id: "",
@@ -130,18 +131,19 @@ export default function FineTicketCenter() {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
-  const addPhotos = (files) => {
+  const addPhotos = async (files) => {
     const next = [...photos];
-    Array.from(files).forEach((file) => {
+    for (const file of Array.from(files)) {
       if (next.length >= 9) {
-        return;
+        break;
       }
+      const compressedFile = await compressImage(file);
       next.push({
-        id: `${file.name}-${file.size}-${Math.random().toString(16).slice(2)}`,
-        file,
-        preview: URL.createObjectURL(file),
+        id: `${compressedFile.name}-${compressedFile.size}-${Math.random().toString(16).slice(2)}`,
+        file: compressedFile,
+        preview: URL.createObjectURL(compressedFile),
       });
-    });
+    }
     setPhotos(next);
   };
 

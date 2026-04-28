@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import api, { buildProtectedFileUrl } from "../lib/axios";
+import { compressImage } from "../lib/imageCompressor";
 
 const PERMIT_META = {
   hot_work_level1: { label: "动火一级票", note: "默认 8 小时" },
@@ -171,7 +172,8 @@ export default function PermitMonitor() {
       payload.append("responsible_person", form.responsible_person);
       payload.append("description", form.description);
       if (manualPhotoRef.current?.files?.[0]) {
-        payload.append("photo", manualPhotoRef.current.files[0]);
+        const compressed = await compressImage(manualPhotoRef.current.files[0]);
+        payload.append("photo", compressed);
       }
       await api.post("/permits/manual", payload);
       setShowModal(false);
@@ -179,7 +181,7 @@ export default function PermitMonitor() {
       setMessage("作业许可已创建，倒计时从当天 7 点开始。");
       await loadData();
     } catch (error) {
-      setMessage(error?.response?.data?.detail || "作业许可创建失败");
+      setMessage(error?.response?.data?.detail || error?.message || "作业许可创建失败");
     } finally {
       setSaving(false);
     }
@@ -193,15 +195,16 @@ export default function PermitMonitor() {
   const handlePhotoSelected = async (event) => {
     const file = event.target.files?.[0];
     if (!file || !photoAction) return;
+    const compressed = await compressImage(file);
     const payload = new FormData();
-    payload.append("photo", file);
+    payload.append("photo", compressed);
     try {
       const url = photoAction.action === "renew" ? `/permits/${photoAction.permitId}/renew` : `/permits/${photoAction.permitId}/photo`;
       await api.post(url, payload);
       setMessage(photoAction.action === "renew" ? "续票成功，新许可照片已更新。" : "许可照片已更新。");
       await loadData();
     } catch (error) {
-      setMessage(error?.response?.data?.detail || "照片上传失败");
+      setMessage(error?.response?.data?.detail || error?.message || "照片上传失败");
     } finally {
       event.target.value = "";
       setPhotoAction(null);

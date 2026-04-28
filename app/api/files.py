@@ -11,7 +11,7 @@ from app.core.security import decode_access_token
 from app.models.fine_ticket import FineTicket
 from app.models.task import ChecklistItem, Task
 from app.models.user import User, UserRole, UserStatus
-from app.models.work_permit import WorkPermit
+from app.models.work_permit import WorkPermit, WorkPermitRenewal
 from app.services.area_scope import is_super_admin, managed_area_ids
 
 router = APIRouter(prefix="/api/files", tags=["files"])
@@ -49,7 +49,15 @@ def can_access_upload(db: Session, user: User, upload_url: str) -> bool:
         return True
 
     allowed_area_ids = managed_area_ids(db, user)
-    permit_query = db.query(WorkPermit).filter(WorkPermit.photo_url == upload_url)
+    permit_query = db.query(WorkPermit).filter(
+        (WorkPermit.photo_url == upload_url) |
+        WorkPermit.id.in_(
+            db.query(WorkPermitRenewal.permit_id).filter(
+                (WorkPermitRenewal.old_photo_url == upload_url) |
+                (WorkPermitRenewal.new_photo_url == upload_url)
+            )
+        )
+    )
     task_query = (
         db.query(Task)
         .join(ChecklistItem, ChecklistItem.task_id == Task.id)
