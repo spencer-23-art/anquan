@@ -17,7 +17,7 @@ const PERMIT_LABELS = {
   height_level2: "二级高处作业票",
   height_level3: "三级高处作业票",
   height_special: "特级高处作业票",
-  hot_work_level1: "一级动火作业票",
+  hot_work_level1: "普通动火作业票",
   hot_work_level2: "二级动火作业票",
   hot_work_level3: "三级动火作业票",
   lifting: "吊装作业票",

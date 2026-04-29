@@ -70,7 +70,7 @@ PERMIT_LABELS = {
     "height_level2": "二级高处作业票",
     "height_level3": "三级高处作业票",
     "height_special": "特级高处作业票",
-    "hot_work_level1": "一级动火作业票",
+    "hot_work_level1": "普通动火作业票",
     "hot_work_level2": "二级动火作业票",
     "hot_work_level3": "三级动火作业票",
     "lifting": "吊装作业票",
@@ -493,7 +493,7 @@ def _build_deterministic_question(messages: list[dict]) -> Optional[str]:
 
 
 def _infer_hot_work_level(text: str) -> str:
-    if "一级动火" in text or "1级动火" in text:
+    if "普通动火" in text or "一级动火" in text or "1级动火" in text:
         return "hot_work_level1"
     if "三级动火" in text or "3级动火" in text:
         return "hot_work_level3"

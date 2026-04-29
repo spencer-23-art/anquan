@@ -28,9 +28,13 @@ def local_now() -> datetime:
     return datetime.now()
 
 
-def get_workday_start(now: Optional[datetime] = None) -> datetime:
+def get_permit_start_time(permit_type: PermitType, now: Optional[datetime] = None) -> datetime:
     current = now or local_now()
-    return current.replace(hour=7, minute=0, second=0, microsecond=0)
+    workday_start = current.replace(hour=7, minute=0, second=0, microsecond=0)
+    planned_end = calculate_end_time(permit_type, workday_start)
+    if current >= planned_end:
+        return current.replace(microsecond=0)
+    return workday_start
 
 
 async def read_limited_upload(upload: UploadFile) -> bytes:
@@ -145,7 +149,7 @@ async def create_permit(
 ):
     ensure_area_access(db, current_user, area_id)
     photo_url = await save_permit_photo(photo, current_user)
-    start_time = get_workday_start()
+    start_time = get_permit_start_time(type)
     end_time = calculate_end_time(type, start_time)
 
     if previous_permit_id is not None:
@@ -271,7 +275,7 @@ async def create_manual_permit(
         has_task_area = db.query(Task.id).filter(Task.assignee_id == current_user.id, Task.area_id == area_id).first()
         if not has_task_area:
             raise HTTPException(status_code=403, detail="No access to this area")
-    start_time = get_workday_start()
+    start_time = get_permit_start_time(type)
     end_time = calculate_end_time(type, start_time)
     photo_url = await save_permit_photo(photo, current_user) if photo else None
 
@@ -316,7 +320,7 @@ async def renew_permit(
 ):
     permit = get_scoped_permit(db, permit_id, current_user)
     ensure_permit_write_access(db, permit, current_user)
-    start_time = get_workday_start()
+    start_time = get_permit_start_time(permit.type)
     old_start_time = permit.start_time
     old_end_time = permit.end_time
     old_photo_url = permit.photo_url
