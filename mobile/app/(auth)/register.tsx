@@ -46,8 +46,8 @@ export default function RegisterScreen() {
         <Text style={[styles.title, { color: colors.text }]}>申请安全员账号</Text>
         <Text style={[styles.subtitle, { color: colors.subtext }]}>提交后由管理员审核，审核通过才能进入客户端。</Text>
 
-        <TextInput style={[styles.input, { borderColor: colors.border, color: colors.text, backgroundColor: colors.cardSoft }]} placeholder="登录账号，可填写中文姓名" placeholderTextColor={colors.subtext} value={username} onChangeText={setUsername} keyboardType="default" textContentType="username" />
-        <TextInput style={[styles.input, { borderColor: colors.border, color: colors.text, backgroundColor: colors.cardSoft }]} placeholder="真实姓名，可填写中文" placeholderTextColor={colors.subtext} value={realName} onChangeText={setRealName} keyboardType="default" textContentType="name" />
+        <TextInput style={[styles.input, { borderColor: colors.border, color: colors.text, backgroundColor: colors.cardSoft }]} placeholder="登录账号，可填写中文姓名" placeholderTextColor={colors.subtext} value={username} onChangeText={setUsername} keyboardType="default" autoCapitalize="none" autoCorrect={false} autoComplete="off" textContentType="none" />
+        <TextInput style={[styles.input, { borderColor: colors.border, color: colors.text, backgroundColor: colors.cardSoft }]} placeholder="真实姓名，可填写中文" placeholderTextColor={colors.subtext} value={realName} onChangeText={setRealName} keyboardType="default" autoComplete="off" textContentType="none" />
         <TextInput style={[styles.input, { borderColor: colors.border, color: colors.text, backgroundColor: colors.cardSoft }]} placeholder="密码，至少 6 位" placeholderTextColor={colors.subtext} secureTextEntry value={password} onChangeText={setPassword} />
 
         {error ? <Text style={[styles.error, { color: colors.danger, backgroundColor: `${colors.danger}14` }]}>{error}</Text> : null}
