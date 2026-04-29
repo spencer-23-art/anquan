@@ -83,6 +83,13 @@ def ensure_runtime_schema():
                 conn.execute(text("ALTER TABLE fine_tickets ADD COLUMN area_id INTEGER"))
                 conn.execute(text("CREATE INDEX IF NOT EXISTS ix_fine_tickets_area_id ON fine_tickets (area_id)"))
 
+        if "checklist_items" in table_names:
+            checklist_columns = {column["name"] for column in inspector.get_columns("checklist_items")}
+            if "inspection_points" not in checklist_columns:
+                conn.execute(text("ALTER TABLE checklist_items ADD COLUMN inspection_points TEXT"))
+            if "photo_requirements" not in checklist_columns:
+                conn.execute(text("ALTER TABLE checklist_items ADD COLUMN photo_requirements TEXT"))
+
         conn.execute(
             text(
                 """

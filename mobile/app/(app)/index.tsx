@@ -12,6 +12,12 @@ function statusText(status: string) {
   return '待排查';
 }
 
+function severityText(severity: string) {
+  if (severity === 'high') return '高风险';
+  if (severity === 'medium') return '中风险';
+  return '低风险';
+}
+
 export default function ClientHomeScreen() {
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
@@ -48,6 +54,8 @@ export default function ClientHomeScreen() {
   const renderTask = ({ item }: { item: any }) => {
     const total = item.checklist_items?.length || 0;
     const done = item.checklist_items?.filter((check: any) => check.status === 'checked').length || 0;
+    const highCount = item.checklist_items?.filter((check: any) => check.severity === 'high').length || 0;
+    const firstItems = (item.checklist_items || []).slice(0, 2);
     return (
       <TouchableOpacity style={[styles.taskCard, { backgroundColor: colors.card, borderColor: colors.border }]} onPress={() => router.push(`/(app)/task/${item.id}`)}>
         <View style={styles.taskHeader}>
@@ -57,9 +65,22 @@ export default function ClientHomeScreen() {
           </Text>
         </View>
         <Text style={[styles.taskDesc, { color: colors.subtext }]} numberOfLines={2}>{item.description || '管理员下发的现场风险排查任务'}</Text>
+        <View style={styles.riskList}>
+          {firstItems.map((check: any, index: number) => (
+            <View key={check.id || index} style={[styles.riskPreview, { backgroundColor: colors.cardSoft }]}>
+              <Text style={[styles.riskPreviewTitle, { color: colors.text }]} numberOfLines={2}>{index + 1}. {check.risk_description || '待排查风险'}</Text>
+              <Text style={[styles.riskPreviewSub, { color: colors.subtext }]} numberOfLines={2}>排查：{check.inspection_points || check.measure || '进入详情查看排查要求'}</Text>
+            </View>
+          ))}
+        </View>
         <View style={styles.metaRow}>
           <Text style={[styles.meta, { color: colors.subtext }]}>区域：{item.area?.name || '-'}</Text>
           <Text style={[styles.meta, { color: colors.primary }]}>进度 {done}/{total}</Text>
+        </View>
+        <View style={styles.tagRow}>
+          <Text style={[styles.tag, { color: colors.danger, backgroundColor: `${colors.danger}14` }]}>{highCount} 项高风险</Text>
+          <Text style={[styles.tag, { color: colors.primary, backgroundColor: colors.primarySoft }]}>必须现场拍照</Text>
+          {firstItems[0]?.severity ? <Text style={[styles.tag, { color: colors.subtext, backgroundColor: colors.cardSoft }]}>{severityText(firstItems[0].severity)}</Text> : null}
         </View>
       </TouchableOpacity>
     );
@@ -130,8 +151,14 @@ const styles = StyleSheet.create({
   taskTitle: { flex: 1, fontSize: 16, fontWeight: '900' },
   badge: { overflow: 'hidden', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4, fontSize: 12, fontWeight: '800' },
   taskDesc: { marginTop: 8, fontSize: 13, lineHeight: 20 },
+  riskList: { marginTop: 12, gap: 8 },
+  riskPreview: { borderRadius: 14, padding: 10 },
+  riskPreviewTitle: { fontSize: 13, fontWeight: '900', lineHeight: 18 },
+  riskPreviewSub: { marginTop: 4, fontSize: 12, lineHeight: 17 },
   metaRow: { marginTop: 12, flexDirection: 'row', justifyContent: 'space-between' },
   meta: { fontSize: 12, fontWeight: '700' },
+  tagRow: { marginTop: 10, flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  tag: { overflow: 'hidden', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4, fontSize: 11, fontWeight: '900' },
   message: { marginBottom: 10, fontWeight: '700' },
   empty: { textAlign: 'center', marginTop: 34 },
 });

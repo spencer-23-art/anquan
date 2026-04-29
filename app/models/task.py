@@ -51,6 +51,8 @@ class ChecklistItem(Base):
     id = Column(Integer, primary_key=True, index=True)
     task_id = Column(Integer, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False)
     risk_description = Column(Text, nullable=False)
+    inspection_points = Column(Text, nullable=True)
+    photo_requirements = Column(Text, nullable=True)
     measure = Column(Text, nullable=True)
     severity = Column(SAEnum(Severity), default=Severity.MEDIUM, nullable=False)
     status = Column(SAEnum(CheckItemStatus), default=CheckItemStatus.PENDING, nullable=False)

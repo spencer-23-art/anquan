@@ -11,6 +11,8 @@ from app.schemas.work_permit import WorkPermitOut
 
 class ChecklistItemCreate(BaseModel):
     risk_description: str
+    inspection_points: Optional[str] = None
+    photo_requirements: Optional[str] = None
     measure: Optional[str] = None
     severity: Severity = Severity.MEDIUM
 
@@ -19,6 +21,8 @@ class ChecklistItemOut(BaseModel):
     id: int
     task_id: int
     risk_description: str
+    inspection_points: Optional[str] = None
+    photo_requirements: Optional[str] = None
     measure: Optional[str] = None
     severity: Severity
     status: CheckItemStatus

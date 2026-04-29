@@ -32,6 +32,15 @@ def get_workday_start(now: datetime | None = None) -> datetime:
     return current.replace(hour=7, minute=0, second=0, microsecond=0)
 
 
+def get_permit_start_time(permit_type: PermitType, now: datetime | None = None) -> datetime:
+    current = now or local_now()
+    workday_start = get_workday_start(current)
+    planned_end = workday_start + timedelta(hours=PERMIT_DURATION_HOURS.get(permit_type, 168))
+    if current >= planned_end:
+        return current.replace(microsecond=0)
+    return workday_start
+
+
 @router.get("/config", response_model=SystemConfigOut)
 def get_ai_config(
     db: Session = Depends(get_db),
@@ -192,6 +201,8 @@ def create_task_from_ai(
                 ChecklistItem(
                     task_id=task.id,
                     risk_description=item.get("risk_description", ""),
+                    inspection_points=item.get("inspection_points"),
+                    photo_requirements=item.get("photo_requirements"),
                     measure=item.get("measure"),
                     severity=severity_value,
                 )
@@ -199,7 +210,7 @@ def create_task_from_ai(
 
         for permit in data.permits or []:
             permit_type = PermitType(permit.type)
-            start_time = get_workday_start()
+            start_time = get_permit_start_time(permit_type)
             end_time = start_time + timedelta(
                 hours=PERMIT_DURATION_HOURS.get(permit_type, 8)
             )

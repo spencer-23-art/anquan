@@ -57,6 +57,8 @@ def create_task(
             ChecklistItem(
                 task_id=task.id,
                 risk_description=item_data.risk_description,
+                inspection_points=item_data.inspection_points,
+                photo_requirements=item_data.photo_requirements,
                 measure=item_data.measure,
                 severity=item_data.severity,
             )
@@ -90,6 +92,8 @@ def create_task_from_ai(
             ChecklistItem(
                 task_id=task.id,
                 risk_description=item_data.risk_description,
+                inspection_points=item_data.inspection_points,
+                photo_requirements=item_data.photo_requirements,
                 measure=item_data.measure,
                 severity=item_data.severity,
             )
