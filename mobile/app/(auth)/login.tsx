@@ -54,8 +54,8 @@ export default function LoginScreen() {
           placeholderTextColor={colors.subtext}
           value={username}
           onChangeText={setUsername}
-          autoCapitalize="none"
-          autoCorrect={false}
+          keyboardType="default"
+          textContentType="username"
         />
 
         <Text style={[styles.label, { color: colors.text }]}>密码</Text>
