@@ -14,7 +14,10 @@ import { useAuthStore } from './stores/auth';
 
 const ProtectedRoute = ({ children, adminOnly = false }) => {
   const { isAuthenticated, user } = useAuthStore();
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
   
   if (adminOnly && user?.role !== "admin") {
     return <Navigate to="/dashboard" replace />;
@@ -36,6 +39,7 @@ function App() {
         path="/register"
         element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Register />}
       />
+
       <Route path="/" element={
         <ProtectedRoute>
           <Layout />
@@ -46,6 +50,7 @@ function App() {
         <Route path="ai-chat" element={<AIChatTask />} />
         <Route path="permits" element={<PermitMonitor />} />
         <Route path="fines" element={<FineTicketCenter />} />
+        
         <Route path="areas" element={
           <ProtectedRoute adminOnly={true}>
             <AreaManagement />
@@ -61,8 +66,8 @@ function App() {
             <SystemSettings />
           </ProtectedRoute>
         } />
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Route>
+
       <Route
         path="*"
         element={<Navigate to={isAuthenticated ? "/dashboard" : "/login"} replace />}

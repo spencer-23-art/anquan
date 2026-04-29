@@ -3,7 +3,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, require_admin
+from app.api.deps import get_current_user, get_db, require_admin
 from app.config import settings
 from app.models.area import Area
 from app.models.user import User, UserRole, UserStatus
