@@ -4,9 +4,9 @@ import api, { buildProtectedFileUrl } from "../lib/axios";
 import { useAuthStore } from "../stores/auth";
 
 const PERMIT_MAP = {
-  hot_work_level1: "普通动火票",
+  hot_work_level1: "动火一级票",
   hot_work_level2: "动火二级票",
-  hot_work_level3: "动火三级票",
+  hot_work_level3: "普通动火票",
   height_level1: "登高一级票",
   height_level2: "登高二级票",
   height_level3: "登高三级票",

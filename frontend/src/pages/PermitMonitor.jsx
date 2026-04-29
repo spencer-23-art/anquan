@@ -16,9 +16,9 @@ import { compressImage } from "../lib/imageCompressor";
 import { useAuthStore } from "../stores/auth";
 
 const PERMIT_META = {
-  hot_work_level1: { label: "普通动火票", note: "默认 8 小时" },
+  hot_work_level3: { label: "普通动火票", note: "默认 7 天" },
   hot_work_level2: { label: "动火二级票", note: "默认 3 天" },
-  hot_work_level3: { label: "动火三级票", note: "默认 7 天" },
+  hot_work_level1: { label: "动火一级票", note: "默认 8 小时" },
   height_level1: { label: "登高一级票", note: "默认 7 天" },
   height_level2: { label: "登高二级票", note: "默认 7 天" },
   height_level3: { label: "登高三级票", note: "默认 7 天" },
@@ -124,7 +124,7 @@ export default function PermitMonitor() {
   const manualPhotoRef = useRef(null);
   const photoClickTimerRef = useRef(null);
   const [form, setForm] = useState({
-    type: "hot_work_level1",
+    type: "hot_work_level3",
     area_id: "",
     responsible_person: "",
     description: "",

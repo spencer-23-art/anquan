@@ -9,7 +9,7 @@ import { useAppTheme } from '../../src/hooks/useAppTheme';
 const PERMIT_LABELS: Record<string, string> = {
   hot_work_level1: '动火一级票',
   hot_work_level2: '动火二级票',
-  hot_work_level3: '动火三级票',
+  hot_work_level3: '普通动火票',
   height_level1: '登高一级票',
   height_level2: '登高二级票',
   height_level3: '登高三级票',
@@ -32,7 +32,7 @@ export default function PermitsScreen() {
   const [loading, setLoading] = useState(true);
   const [cameraAction, setCameraAction] = useState<any>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [form, setForm] = useState({ type: 'hot_work_level1', area_id: '', responsible_person: '', description: '' });
+  const [form, setForm] = useState({ type: 'hot_work_level3', area_id: '', responsible_person: '', description: '' });
   const cameraRef = useRef<any>(null);
 
   const loadData = async () => {
