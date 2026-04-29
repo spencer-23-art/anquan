@@ -16,17 +16,17 @@ import {
 import { useAuthStore } from "../stores/auth";
 
 const links = [
-  { to: "/dashboard", icon: LayoutDashboard, label: "系统概览" },
-  { to: "/ai-chat", icon: Bot, label: "AI 风险分析" },
-  { to: "/permits", icon: FileCheck, label: "作业许可" },
-  { to: "/areas", icon: MapIcon, label: "区域管理" },
-  { to: "/approvals", icon: Users, label: "用户审核" },
-  { to: "/fines", icon: FileText, label: "在线罚单" },
-  { to: "/settings", icon: Settings, label: "系统设置" },
+  { to: "/dashboard", icon: LayoutDashboard, label: "任务执行", roles: ["admin", "inspector"] },
+  { to: "/ai-chat", icon: Bot, label: "AI 风险分析", roles: ["admin", "inspector"] },
+  { to: "/permits", icon: FileCheck, label: "作业许可", roles: ["admin", "inspector"] },
+  { to: "/fines", icon: FileText, label: "在线罚单", roles: ["admin", "inspector"] },
+  { to: "/areas", icon: MapIcon, label: "区域管理", roles: ["admin"] },
+  { to: "/approvals", icon: Users, label: "用户审核", roles: ["admin"] },
+  { to: "/settings", icon: Settings, label: "系统设置", roles: ["admin"] },
 ];
 
 function SidebarContent({ user, onLogout, onNavigate }) {
-  const visibleLinks = user?.username === "spencer" ? links : links.filter((link) => link.to !== "/approvals");
+  const visibleLinks = links.filter((link) => link.roles.includes(user?.role || "admin"));
 
   return (
     <>

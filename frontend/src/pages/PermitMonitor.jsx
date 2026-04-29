@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import api, { buildProtectedFileUrl } from "../lib/axios";
 import { compressImage } from "../lib/imageCompressor";
+import { useAuthStore } from "../stores/auth";
 
 const PERMIT_META = {
   hot_work_level1: { label: "动火一级票", note: "默认 8 小时" },
@@ -109,6 +110,7 @@ function buildAreaOptions(areas) {
 }
 
 export default function PermitMonitor() {
+  const { user } = useAuthStore();
   const [permits, setPermits] = useState([]);
   const [areas, setAreas] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -276,10 +278,12 @@ export default function PermitMonitor() {
             <h1 className="text-2xl font-semibold tracking-tight text-slate-900">作业许可监控</h1>
             <p className="mt-2 text-sm leading-6 text-slate-500">剩余有效期小于等于 20% 自动黄色提醒，快到期的票证排在最前。</p>
           </div>
-          <button type="button" onClick={() => setShowModal(true)} className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-slate-800">
-            <FilePlus2 size={18} />
-            手动添加票证
-          </button>
+          {user?.role === "admin" && (
+            <button type="button" onClick={() => setShowModal(true)} className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-slate-800">
+              <FilePlus2 size={18} />
+              手动添加票证
+            </button>
+          )}
         </div>
       </section>
 
@@ -365,9 +369,11 @@ export default function PermitMonitor() {
                     <button type="button" onClick={() => openPhotoPicker(permit.id, "renew")} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-slate-700 hover:bg-white/70">
                       <Upload size={13} />续票换照
                     </button>
-                    <button type="button" onClick={() => handleDeletePermit(permit.id)} className="rounded-lg p-1.5 text-slate-400 hover:bg-white/70 hover:text-rose-600">
-                      <Trash2 size={14} />
-                    </button>
+                    {user?.role === "admin" && (
+                      <button type="button" onClick={() => handleDeletePermit(permit.id)} className="rounded-lg p-1.5 text-slate-400 hover:bg-white/70 hover:text-rose-600">
+                        <Trash2 size={14} />
+                      </button>
+                    )}
                   </div>
                 </div>
               </article>

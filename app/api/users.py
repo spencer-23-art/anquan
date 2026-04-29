@@ -22,9 +22,12 @@ def require_super_admin(current_user: User) -> None:
 def list_users(
     status_filter: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
 ):
-    require_super_admin(current_user)
+    # Only super admin can see pending users or manage them, 
+    # but any logged in user can see approved users for assignment.
+    if status_filter != "approved":
+        require_super_admin(current_user)
     query = db.query(User)
     if status_filter:
         query = query.filter(User.status == status_filter)

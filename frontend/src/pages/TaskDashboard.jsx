@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Trash2 } from "lucide-react";
 import api, { buildProtectedFileUrl } from "../lib/axios";
+import { useAuthStore } from "../stores/auth";
 
 const PERMIT_MAP = {
   hot_work_level1: "动火一级票",
@@ -85,6 +86,7 @@ export default function TaskDashboard() {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expandedTask, setExpandedTask] = useState(null);
+  const { user } = useAuthStore();
 
   const fetchTasks = async () => {
     try {
@@ -147,7 +149,9 @@ export default function TaskDashboard() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-foreground">任务执行监控</h1>
+        <h1 className="text-2xl font-bold text-foreground">
+          {user?.role === "admin" ? "任务执行监控" : "我的安全任务"}
+        </h1>
         <div className="text-xs text-muted-foreground">每 10 秒自动刷新</div>
       </div>
 
@@ -187,13 +191,15 @@ export default function TaskDashboard() {
                           <div className="mb-1 flex items-center gap-3">
                             <span className="font-bold text-foreground">{task.title}</span>
                             {getStatusBadge(task.status)}
-                            <button
-                              onClick={(event) => handleDelete(event, task.id)}
-                              className="ml-auto rounded p-1.5 text-destructive transition-colors hover:bg-destructive/10 hover:text-destructive/80"
-                              title="删除任务"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
+                            {user?.role === "admin" && (
+                              <button
+                                onClick={(event) => handleDelete(event, task.id)}
+                                className="ml-auto rounded p-1.5 text-destructive transition-colors hover:bg-destructive/10 hover:text-destructive/80"
+                                title="删除任务"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            )}
                           </div>
 
                           <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">

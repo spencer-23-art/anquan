@@ -8,6 +8,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import api from "../lib/axios";
+import { useAuthStore } from "../stores/auth";
 import { useAIChatStore } from "../stores/aiChatStore";
 
 const PERMIT_LABELS = {
@@ -143,6 +144,7 @@ export default function AIChatTask() {
   });
   const chatViewportRef = useRef(null);
 
+  const { user } = useAuthStore();
   const { messages, draftTask, appendMessage, setDraftTask, reset } = useAIChatStore();
 
   useEffect(() => {
