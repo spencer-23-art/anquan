@@ -131,18 +131,18 @@ export default function Layout() {
       ) : null}
 
       <main className="flex min-w-0 flex-1 flex-col bg-muted/30">
-        <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-white/92 px-4 py-3 backdrop-blur lg:hidden">
-          <div className="min-w-0">
-            <div className="text-xs text-slate-500">安全巡检管理系统</div>
-            <div className="truncate text-sm font-semibold text-slate-900">{currentTitle}</div>
-          </div>
+        <header className="sticky top-0 z-30 flex items-center justify-start gap-3 border-b border-border bg-white/92 px-4 py-3 backdrop-blur lg:hidden">
           <button
             type="button"
             onClick={() => setMobileOpen(true)}
-            className="rounded-xl border border-slate-200 p-2 text-slate-700"
+            className="shrink-0 rounded-xl border border-slate-200 p-2 text-slate-700"
           >
             <Menu size={18} />
           </button>
+          <div className="min-w-0 flex-1">
+            <div className="text-xs text-slate-500">安全巡检管理系统</div>
+            <div className="truncate text-sm font-semibold text-slate-900">{currentTitle}</div>
+          </div>
         </header>
 
         <div className="flex-1 overflow-auto">
