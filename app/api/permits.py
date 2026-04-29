@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session, joinedload
 from app.api.deps import get_current_user, get_db, require_admin
 from app.config import settings
 from app.models.area import Area
-from app.models.user import User
+from app.models.task import Task
+from app.models.user import User, UserRole
 from app.models.work_permit import (
     PERMIT_DURATION_HOURS,
     WARNING_THRESHOLD_PERCENT,
@@ -89,7 +90,15 @@ def scoped_permit_query(db: Session, current_user: User):
     )
     allowed_ids = managed_area_ids(db, current_user)
     if allowed_ids is not None:
-        query = query.filter(WorkPermit.area_id.in_(allowed_ids))
+        if current_user.role == UserRole.ADMIN:
+            query = query.filter(WorkPermit.area_id.in_(allowed_ids))
+        else:
+            assigned_task_ids = db.query(Task.id).filter(Task.assignee_id == current_user.id)
+            query = query.filter(
+                (WorkPermit.applicant_id == current_user.id)
+                | (WorkPermit.responsible_person == current_user.real_name)
+                | (WorkPermit.task_id.in_(assigned_task_ids))
+            )
     return query
 
 
@@ -98,6 +107,24 @@ def get_scoped_permit(db: Session, permit_id: int, current_user: User) -> WorkPe
     if not permit:
         raise HTTPException(status_code=404, detail="Permit not found")
     return permit
+
+
+def ensure_permit_write_access(db: Session, permit: WorkPermit, current_user: User) -> None:
+    if current_user.role == UserRole.ADMIN:
+        ensure_area_access(db, current_user, permit.area_id)
+        return
+    assigned_task = (
+        permit.task_id
+        and db.query(Task.id)
+        .filter(Task.id == permit.task_id, Task.assignee_id == current_user.id)
+        .first()
+    )
+    if (
+        permit.applicant_id != current_user.id
+        and permit.responsible_person != current_user.real_name
+        and not assigned_task
+    ):
+        raise HTTPException(status_code=403, detail="No permission to update this permit")
 
 
 def attach_renewal_count(permit: WorkPermit) -> WorkPermit:
@@ -148,7 +175,7 @@ def list_permits(
     status_filter: Optional[str] = None,
     area_id: Optional[int] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
 ):
     now = local_now()
     query = scoped_permit_query(db, current_user)
@@ -219,7 +246,7 @@ def get_warnings(
 def get_permit(
     permit_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
 ):
     permit = get_scoped_permit(db, permit_id, current_user)
     if refresh_permit_status(permit):
@@ -236,9 +263,14 @@ async def create_manual_permit(
     description: str = Form(default=""),
     photo: Optional[UploadFile] = File(default=None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
 ):
-    ensure_area_access(db, current_user, area_id)
+    if current_user.role == UserRole.ADMIN:
+        ensure_area_access(db, current_user, area_id)
+    else:
+        has_task_area = db.query(Task.id).filter(Task.assignee_id == current_user.id, Task.area_id == area_id).first()
+        if not has_task_area:
+            raise HTTPException(status_code=403, detail="No access to this area")
     start_time = get_workday_start()
     end_time = calculate_end_time(type, start_time)
     photo_url = await save_permit_photo(photo, current_user) if photo else None
@@ -265,9 +297,10 @@ async def upload_permit_photo(
     permit_id: int,
     photo: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
 ):
     permit = get_scoped_permit(db, permit_id, current_user)
+    ensure_permit_write_access(db, permit, current_user)
     permit.photo_url = await save_permit_photo(photo, current_user)
     db.commit()
     db.refresh(permit)
@@ -279,9 +312,10 @@ async def renew_permit(
     permit_id: int,
     photo: Optional[UploadFile] = File(default=None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
 ):
     permit = get_scoped_permit(db, permit_id, current_user)
+    ensure_permit_write_access(db, permit, current_user)
     start_time = get_workday_start()
     old_start_time = permit.start_time
     old_end_time = permit.end_time

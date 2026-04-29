@@ -3,7 +3,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, require_admin
+from app.api.deps import get_current_user, get_db, require_admin
 from app.models.area import Area
 from app.models.fine_ticket import FineTicket
 from app.models.task import Task
@@ -18,11 +18,25 @@ router = APIRouter(prefix="/api/areas", tags=["areas"])
 @router.get("", response_model=List[AreaOut])
 def list_areas(
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
 ):
     query = db.query(Area)
     allowed_ids = managed_area_ids(db, current_user)
     if allowed_ids is not None:
+        if not allowed_ids:
+            task_area_ids = db.query(Task.area_id).filter(Task.assignee_id == current_user.id)
+            permit_area_ids = db.query(WorkPermit.area_id).filter(
+                (WorkPermit.applicant_id == current_user.id)
+                | (WorkPermit.responsible_person == current_user.real_name)
+            )
+            fine_area_ids = db.query(FineTicket.area_id).filter(FineTicket.creator_id == current_user.id)
+            allowed_ids = sorted(
+                {
+                    area_id
+                    for (area_id,) in list(task_area_ids) + list(permit_area_ids) + list(fine_area_ids)
+                    if area_id is not None
+                }
+            )
         query = query.filter(Area.id.in_(allowed_ids))
     return query.order_by(Area.parent_id.isnot(None), Area.name).all()
 
