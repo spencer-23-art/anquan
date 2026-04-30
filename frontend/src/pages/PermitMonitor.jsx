@@ -54,10 +54,10 @@ function getPermitProgress(startTime, endTime, now) {
 
   const remainingPercent = Math.max(0, Math.min(100, (remaining / total) * 100));
   const totalMinutes = Math.floor(remaining / 60000);
-  const days = Math.floor(totalMinutes / 1440);
+  const days = Math.ceil(totalMinutes / 1440);
   const hours = Math.floor((totalMinutes % 1440) / 60);
   const minutes = totalMinutes % 60;
-  const countdown = days > 0 ? `${days}天 ${hours}小时` : hours > 0 ? `${hours}小时 ${minutes}分钟` : `${Math.max(minutes, 1)}分钟`;
+  const countdown = days > 1 ? `约 ${days}天` : hours > 0 ? `${hours}小时 ${minutes}分钟` : `${Math.max(minutes, 1)}分钟`;
 
   return {
     remainingPercent,
@@ -190,7 +190,7 @@ export default function PermitMonitor() {
       await api.post("/permits/manual", payload);
       setShowModal(false);
       setForm((current) => ({ ...current, responsible_person: "", description: "" }));
-      setMessage("作业许可已创建，倒计时从当天 7 点开始。");
+      setMessage("作业许可已创建，有效期已按票证规则开始倒计时。");
       await loadData();
     } catch (error) {
       setMessage(error?.response?.data?.detail || error?.message || "作业许可创建失败");
@@ -252,7 +252,7 @@ export default function PermitMonitor() {
   const handleRenew = async (permitId) => {
     try {
       await api.post(`/permits/${permitId}/renew`, new FormData());
-      setMessage("续票成功，有效期已按当天 7 点重新计算。");
+      setMessage("续票成功，有效期已按票证规则重新计算。");
       await loadData();
     } catch (error) {
       setMessage(error?.response?.data?.detail || "续票失败");
@@ -401,7 +401,7 @@ export default function PermitMonitor() {
               <label className="block">
                 <span className="mb-2 block text-sm font-medium text-slate-700">票证类型</span>
                 <select className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-slate-900" value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value })}>
-                  {Object.entries(PERMIT_META).map(([value, meta]) => <option key={value} value={value}>{meta.label}</option>)}
+                  {Object.entries(PERMIT_META).map(([value, meta]) => <option key={value} value={value}>{meta.label}（{meta.note.replace("默认 ", "")}）</option>)}
                 </select>
               </label>
 

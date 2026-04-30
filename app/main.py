@@ -68,6 +68,7 @@ def ensure_runtime_schema():
 
     inspector = inspect(engine)
     with engine.begin() as conn:
+        table_names = set(inspector.get_table_names())
         area_columns = {column["name"] for column in inspector.get_columns("areas")}
         if "parent_id" not in area_columns:
             conn.execute(text("ALTER TABLE areas ADD COLUMN parent_id INTEGER"))
@@ -76,7 +77,11 @@ def ensure_runtime_schema():
         if "managed_area_id" not in user_columns:
             conn.execute(text("ALTER TABLE users ADD COLUMN managed_area_id INTEGER"))
 
-        table_names = set(inspector.get_table_names())
+        if "tasks" in table_names:
+            task_columns = {column["name"] for column in inspector.get_columns("tasks")}
+            if "required_permits" not in task_columns:
+                conn.execute(text("ALTER TABLE tasks ADD COLUMN required_permits TEXT"))
+
         if "fine_tickets" in table_names:
             fine_columns = {column["name"] for column in inspector.get_columns("fine_tickets")}
             if "area_id" not in fine_columns:

@@ -1,4 +1,5 @@
-from datetime import datetime, timedelta
+import json
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -7,7 +8,7 @@ from app.api.deps import get_current_user, get_db, require_admin
 from app.models.system_config import SystemConfig
 from app.models.task import ChecklistItem, Severity, Task
 from app.models.user import User
-from app.models.work_permit import PERMIT_DURATION_HOURS, PermitStatus, PermitType, WorkPermit
+from app.models.work_permit import PermitType
 from app.schemas.system_config import (
     AIChatMessage,
     AIChatResponse,
@@ -30,15 +31,6 @@ def local_now() -> datetime:
 def get_workday_start(now: datetime | None = None) -> datetime:
     current = now or local_now()
     return current.replace(hour=7, minute=0, second=0, microsecond=0)
-
-
-def get_permit_start_time(permit_type: PermitType, now: datetime | None = None) -> datetime:
-    current = now or local_now()
-    workday_start = get_workday_start(current)
-    planned_end = workday_start + timedelta(hours=PERMIT_DURATION_HOURS.get(permit_type, 168))
-    if current >= planned_end:
-        return current.replace(microsecond=0)
-    return workday_start
 
 
 @router.get("/config", response_model=SystemConfigOut)
@@ -181,6 +173,8 @@ def create_task_from_ai(
         assignee = db.query(User).filter(User.id == data.assignee_id).first()
         if not assignee:
             raise HTTPException(status_code=404, detail="Assignee not found")
+        for permit in data.permits or []:
+            PermitType(permit.type)
 
         task = Task(
             title=title,
@@ -189,6 +183,10 @@ def create_task_from_ai(
             assignee_id=data.assignee_id,
             creator_id=current_user.id,
             ai_session_id=data.session_id,
+            required_permits=json.dumps(
+                [permit.model_dump() for permit in data.permits or []],
+                ensure_ascii=False,
+            ),
         )
         db.add(task)
         db.flush()
@@ -205,27 +203,6 @@ def create_task_from_ai(
                     photo_requirements=item.get("photo_requirements"),
                     measure=item.get("measure"),
                     severity=severity_value,
-                )
-            )
-
-        for permit in data.permits or []:
-            permit_type = PermitType(permit.type)
-            start_time = get_permit_start_time(permit_type)
-            end_time = start_time + timedelta(
-                hours=PERMIT_DURATION_HOURS.get(permit_type, 8)
-            )
-            db.add(
-                WorkPermit(
-                    type=permit_type,
-                    area_id=data.area_id,
-                    applicant_id=current_user.id,
-                    responsible_person=assignee.real_name,
-                    description=f"AI 风险分析会话 {data.session_id} 自动生成",
-                    photo_url=permit.photo_url,
-                    start_time=start_time,
-                    end_time=end_time,
-                    status=PermitStatus.ACTIVE,
-                    task_id=task.id,
                 )
             )
 

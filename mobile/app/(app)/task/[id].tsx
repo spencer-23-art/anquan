@@ -7,6 +7,20 @@ import { Camera, CheckCircle2, ChevronLeft, ShieldAlert } from 'lucide-react-nat
 import api, { protectedFileUrl } from '../../../src/services/api';
 
 const MAX_PHOTO_BYTES = 200 * 1024;
+const PERMIT_LABELS: Record<string, string> = {
+  hot_work_level1: '动火一级票',
+  hot_work_level2: '动火二级票',
+  hot_work_level3: '普通动火票',
+  height_level1: '登高一级票',
+  height_level2: '登高二级票',
+  height_level3: '登高三级票',
+  height_special: '特级登高票',
+  confined_space: '受限空间票',
+  lifting: '吊装票',
+  excavation: '动土票',
+  electrical: '临电票',
+  other: '其他票证',
+};
 
 function severityMeta(severity?: string) {
   if (severity === 'high') return { label: '高风险', color: '#dc2626', bg: '#fee2e2' };
@@ -59,7 +73,7 @@ export default function ChecklistScreen() {
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [cameraActive, setCameraActive] = useState(false);
-  const [activeItemId, setActiveItemId] = useState<number | null>(null);
+  const [cameraTarget, setCameraTarget] = useState<{ kind: 'check' | 'permit'; id?: number; index?: number } | null>(null);
   const [uploading, setUploading] = useState(false);
   const cameraRef = useRef<any>(null);
 
@@ -80,7 +94,7 @@ export default function ChecklistScreen() {
     loadTask();
   }, [loadTask]);
 
-  const openCamera = async (itemId: number) => {
+  const openCamera = async (target: { kind: 'check' | 'permit'; id?: number; index?: number }) => {
     let currentPermission = permission;
     if (!currentPermission?.granted) {
       currentPermission = await requestPermission();
@@ -89,12 +103,12 @@ export default function ChecklistScreen() {
       Alert.alert('需要相机权限', '安全排查必须现场拍照，不能从相册选择。请允许相机权限后再拍照。');
       return;
     }
-    setActiveItemId(itemId);
+    setCameraTarget(target);
     setCameraActive(true);
   };
 
   const takePicture = async () => {
-    if (!cameraRef.current || !activeItemId || uploading) return;
+    if (!cameraRef.current || !cameraTarget || uploading) return;
     setUploading(true);
     try {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.8, skipProcessing: false });
@@ -103,16 +117,20 @@ export default function ChecklistScreen() {
       }
       const compressedImage = await compressPhoto(photo.uri);
       const formData = new FormData();
-      formData.append('note', `移动端现场拍照，压缩后约 ${Math.ceil(compressedImage.size / 1024)}KB`);
       formData.append('photo', {
         uri: compressedImage.uri,
-        name: `check_${activeItemId}.jpg`,
+        name: `${cameraTarget.kind}_${cameraTarget.id ?? cameraTarget.index}.jpg`,
         type: 'image/jpeg',
       } as any);
 
-      await api.post(`tasks/${id}/items/${activeItemId}/check`, formData);
+      if (cameraTarget.kind === 'check') {
+        formData.append('note', `移动端现场拍照，压缩后约 ${Math.ceil(compressedImage.size / 1024)}KB`);
+        await api.post(`tasks/${id}/items/${cameraTarget.id}/check`, formData);
+      } else {
+        await api.post(`tasks/${id}/permits/${cameraTarget.index}/photo`, formData);
+      }
       setCameraActive(false);
-      setActiveItemId(null);
+      setCameraTarget(null);
       await loadTask();
     } catch (err: any) {
       Alert.alert('拍照上传失败', err.message || err.response?.data?.detail || '请检查相机权限和网络连接后重试');
@@ -152,7 +170,9 @@ export default function ChecklistScreen() {
   }
 
   const checkedCount = items.filter((item) => item.status === 'checked').length;
-  const isAllChecked = items.length > 0 && checkedCount === items.length;
+  const requiredPermits = task?.required_permits || [];
+  const completedPermitCount = requiredPermits.filter((permit: any) => permit.permit_id && permit.photo_url).length;
+  const isAllChecked = items.length > 0 && checkedCount === items.length && completedPermitCount === requiredPermits.length;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -175,8 +195,28 @@ export default function ChecklistScreen() {
 
       <View style={styles.progressCard}>
         <Text style={styles.progressTitle}>巡查进度</Text>
-        <Text style={styles.progressText}>{checkedCount}/{items.length} 项已完成。每一项必须现场拍照，照片会在上传前压缩到 200KB 以内。</Text>
+        <Text style={styles.progressText}>{checkedCount}/{items.length} 项已完成，作业许可 {completedPermitCount}/{requiredPermits.length} 张已拍照办理。所有照片上传前都会压缩到 200KB 以内。</Text>
       </View>
+
+      {requiredPermits.length ? (
+        <View style={styles.permitSection}>
+          <Text style={styles.sectionTitle}>必须办理的作业许可</Text>
+          <Text style={styles.sectionHint}>这些票证只有你现场拍照上传后，才会同步到后台作业许可。</Text>
+          {requiredPermits.map((permit: any, index: number) => (
+            <View key={`${permit.type}-${index}`} style={styles.permitCard}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.permitTitle}>{PERMIT_LABELS[permit.type] || permit.type || '作业许可'}</Text>
+                <Text style={styles.permitReason}>{permit.reason || 'AI 风险分析判定必须办理'}</Text>
+                {permit.permit_id ? <Text style={styles.permitDone}>已同步到后台：#{permit.permit_id}</Text> : <Text style={styles.permitPending}>未拍照，后台暂不显示</Text>}
+              </View>
+              <TouchableOpacity style={styles.permitPhotoBtn} onPress={() => openCamera({ kind: 'permit', index })}>
+                <Camera size={18} color="#0f766e" />
+                <Text style={styles.permitPhotoText}>{permit.permit_id ? '重拍' : '拍照办理'}</Text>
+              </TouchableOpacity>
+            </View>
+          ))}
+        </View>
+      ) : null}
 
       {items.map((item, idx) => {
         const severity = severityMeta(item.severity);
@@ -212,7 +252,7 @@ export default function ChecklistScreen() {
             </View>
 
             <View style={styles.actionRow}>
-              <TouchableOpacity style={styles.photoButton} onPress={() => openCamera(item.id)}>
+              <TouchableOpacity style={styles.photoButton} onPress={() => openCamera({ kind: 'check', id: item.id })}>
                 {photoUri ? (
                   <Image source={{ uri: photoUri }} style={styles.photoPreview} />
                 ) : (
@@ -238,7 +278,7 @@ export default function ChecklistScreen() {
         style={[styles.submitBtn, !isAllChecked && styles.disabledButton]}
         onPress={() => {
           if (!isAllChecked) {
-            Alert.alert('还不能归档', '请先完成所有项目的现场拍照。');
+            Alert.alert('还不能归档', '请先完成所有隐患排查拍照，并把必须办理的作业许可拍照上传。');
             return;
           }
           Alert.alert('任务完成', '巡查任务已全部完成并归档。', [{ text: '返回', onPress: () => router.back() }]);
@@ -267,6 +307,16 @@ const styles = StyleSheet.create({
   progressCard: { borderRadius: 18, backgroundColor: '#0f766e', padding: 14, marginBottom: 14 },
   progressTitle: { color: '#ffffff', fontSize: 16, fontWeight: '900' },
   progressText: { color: '#d9fffb', marginTop: 4, fontSize: 13, lineHeight: 20 },
+  permitSection: { backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#dbe8e4', borderRadius: 22, padding: 14, marginBottom: 14 },
+  sectionTitle: { color: '#0f172a', fontSize: 17, fontWeight: '900' },
+  sectionHint: { color: '#64748b', fontSize: 12, lineHeight: 18, marginTop: 4, marginBottom: 10 },
+  permitCard: { borderRadius: 16, backgroundColor: '#f8fafc', padding: 12, marginTop: 8, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  permitTitle: { color: '#0f172a', fontWeight: '900', fontSize: 14 },
+  permitReason: { color: '#475569', marginTop: 4, fontSize: 12, lineHeight: 18 },
+  permitDone: { color: '#059669', marginTop: 6, fontSize: 12, fontWeight: '900' },
+  permitPending: { color: '#d97706', marginTop: 6, fontSize: 12, fontWeight: '900' },
+  permitPhotoBtn: { borderRadius: 14, backgroundColor: '#ccfbf1', paddingHorizontal: 10, paddingVertical: 9, alignItems: 'center', gap: 4 },
+  permitPhotoText: { color: '#0f766e', fontSize: 12, fontWeight: '900' },
   checkCard: { backgroundColor: '#ffffff', padding: 16, borderRadius: 22, marginBottom: 14, borderWidth: 1, borderColor: '#dbe8e4' },
   checkHeader: { flexDirection: 'row', gap: 12, marginBottom: 12 },
   indexPill: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#0f766e', alignItems: 'center', justifyContent: 'center' },

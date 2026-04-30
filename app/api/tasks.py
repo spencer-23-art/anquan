@@ -1,5 +1,6 @@
+import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -9,6 +10,7 @@ from app.api.deps import get_current_user, get_db, require_admin
 from app.config import settings
 from app.models.task import CheckItemStatus, ChecklistItem, Task, TaskStatus
 from app.models.user import User, UserRole
+from app.models.work_permit import PERMIT_DURATION_HOURS, PermitStatus, PermitType, WorkPermit
 from app.schemas.task import TaskCreate, TaskFromAI, TaskOut
 from app.services.area_scope import ensure_area_access, managed_area_ids
 
@@ -32,6 +34,37 @@ def task_query(db: Session):
         joinedload(Task.assignee),
         joinedload(Task.associated_permits),
     )
+
+
+def local_now() -> datetime:
+    return datetime.now()
+
+
+def get_workday_start(now: datetime | None = None) -> datetime:
+    current = now or local_now()
+    return current.replace(hour=7, minute=0, second=0, microsecond=0)
+
+
+def get_permit_start_time(permit_type: PermitType, now: datetime | None = None) -> datetime:
+    current = now or local_now()
+    workday_start = get_workday_start(current)
+    planned_end = workday_start + timedelta(hours=PERMIT_DURATION_HOURS.get(permit_type, 168))
+    if current >= planned_end:
+        return current.replace(microsecond=0)
+    return workday_start
+
+
+def load_required_permits(task: Task) -> list[dict]:
+    if not task.required_permits:
+        return []
+    try:
+        return json.loads(task.required_permits)
+    except json.JSONDecodeError:
+        return []
+
+
+def save_required_permits(task: Task, permits: list[dict]) -> None:
+    task.required_permits = json.dumps(permits, ensure_ascii=False)
 
 
 @router.post("", response_model=TaskOut, status_code=201)
@@ -190,6 +223,73 @@ async def check_item(
         db.commit()
 
     return {"message": "Checklist item checked"}
+
+
+@router.post("/{task_id}/permits/{permit_index}/photo", response_model=TaskOut)
+async def upload_required_permit_photo(
+    task_id: int,
+    permit_index: int,
+    photo: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    task = db.query(Task).filter(Task.id == task_id).first()
+    if not task or task.assignee_id != current_user.id:
+        raise HTTPException(status_code=403, detail="No access to this task")
+
+    required_permits = load_required_permits(task)
+    if permit_index < 0 or permit_index >= len(required_permits):
+        raise HTTPException(status_code=404, detail="Required permit not found")
+
+    if not photo.content_type or not photo.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Photo must be an image")
+
+    permit_data = required_permits[permit_index]
+    permit_type = PermitType(permit_data.get("type"))
+    upload_dir = os.path.join(settings.UPLOAD_DIR, "permits")
+    os.makedirs(upload_dir, exist_ok=True)
+    ext = photo.filename.rsplit(".", 1)[-1] if photo.filename and "." in photo.filename else "jpg"
+    filename = f"task_{task_id}_permit_{permit_index}_{datetime.now().strftime('%Y%m%d%H%M%S%f')}.{ext}"
+    filepath = os.path.join(upload_dir, filename)
+
+    content = await read_limited_upload(photo)
+    with open(filepath, "wb") as file_obj:
+        file_obj.write(content)
+
+    photo_url = f"/uploads/permits/{filename}"
+    existing_permit_id = permit_data.get("permit_id")
+    permit = db.query(WorkPermit).filter(WorkPermit.id == existing_permit_id).first() if existing_permit_id else None
+
+    if permit:
+        permit.photo_url = photo_url
+    else:
+        start_time = get_permit_start_time(permit_type)
+        permit = WorkPermit(
+            type=permit_type,
+            area_id=task.area_id,
+            applicant_id=current_user.id,
+            responsible_person=current_user.real_name or current_user.username,
+            description=f"客户端任务 #{task.id} 拍照办理",
+            photo_url=photo_url,
+            start_time=start_time,
+            end_time=start_time + timedelta(hours=PERMIT_DURATION_HOURS.get(permit_type, 168)),
+            status=PermitStatus.ACTIVE,
+            task_id=task.id,
+        )
+        db.add(permit)
+        db.flush()
+
+    permit_data.update(
+        {
+            "photo_url": photo_url,
+            "permit_id": permit.id,
+            "uploaded_at": datetime.now().isoformat(timespec="seconds"),
+        }
+    )
+    required_permits[permit_index] = permit_data
+    save_required_permits(task, required_permits)
+    db.commit()
+    return task_query(db).filter(Task.id == task.id).first()
 
 
 @router.delete("/{task_id}")

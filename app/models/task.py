@@ -35,6 +35,7 @@ class Task(Base):
     creator_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     status = Column(SAEnum(TaskStatus), default=TaskStatus.PENDING, nullable=False)
     ai_session_id = Column(String(64), nullable=True)
+    required_permits = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
 

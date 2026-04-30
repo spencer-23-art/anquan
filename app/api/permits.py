@@ -92,6 +92,7 @@ def scoped_permit_query(db: Session, current_user: User):
         joinedload(WorkPermit.area),
         joinedload(WorkPermit.applicant),
     )
+    query = query.filter(~((WorkPermit.task_id.isnot(None)) & (WorkPermit.photo_url.is_(None))))
     allowed_ids = managed_area_ids(db, current_user)
     if allowed_ids is not None:
         if current_user.role == UserRole.ADMIN:

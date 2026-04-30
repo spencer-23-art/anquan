@@ -1,7 +1,7 @@
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from app.models.task import CheckItemStatus, Severity, TaskStatus
 from app.schemas.area import AreaOut
@@ -55,6 +55,7 @@ class TaskOut(BaseModel):
     creator_id: int
     status: TaskStatus
     ai_session_id: Optional[str] = None
+    required_permits: Optional[List[dict[str, Any]]] = []
     created_at: datetime
     completed_at: Optional[datetime] = None
     checklist_items: List[ChecklistItemOut] = []
@@ -64,6 +65,20 @@ class TaskOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+    @field_validator("required_permits", mode="before")
+    @classmethod
+    def parse_required_permits(cls, value):
+        if not value:
+            return []
+        if isinstance(value, str):
+            import json
+
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                return []
+        return value
 
 
 class TaskFromAI(BaseModel):
