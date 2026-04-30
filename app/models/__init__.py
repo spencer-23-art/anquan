@@ -1,3 +1,4 @@
+from app.models.ai_analysis_history import AIAnalysisHistory
 from app.models.area import Area
 from app.models.fine_ticket import FineTicket, FineTicketType
 from app.models.system_config import SystemConfig
@@ -14,6 +15,7 @@ from app.models.work_permit import (
 
 __all__ = [
     "Area",
+    "AIAnalysisHistory",
     "FineTicket",
     "FineTicketType",
     "SystemConfig",

@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel
@@ -49,6 +50,7 @@ class AIChatMessage(BaseModel):
     session_id: Optional[str] = None
     message: str
     provider_id: Optional[str] = None
+    area_id: Optional[int] = None
 
 
 class AIChatResponse(BaseModel):
@@ -70,3 +72,16 @@ class AICreateTaskRequest(BaseModel):
     title: Optional[str] = None
     items: Optional[list[dict]] = []
     permits: Optional[list[AICreatePermitData]] = []
+
+
+class AIAnalysisHistoryOut(BaseModel):
+    id: int
+    session_id: str
+    title: str
+    area_id: Optional[int] = None
+    area_name: Optional[str] = None
+    creator_name: Optional[str] = None
+    item_count: int = 0
+    permit_count: int = 0
+    created_at: datetime
+    payload: dict

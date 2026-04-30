@@ -82,6 +82,29 @@ def ensure_runtime_schema():
             if "required_permits" not in task_columns:
                 conn.execute(text("ALTER TABLE tasks ADD COLUMN required_permits TEXT"))
 
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS ai_analysis_histories (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    title VARCHAR(200) NOT NULL,
+                    area_id INTEGER,
+                    creator_id INTEGER NOT NULL,
+                    ai_session_id VARCHAR(64) NOT NULL,
+                    payload TEXT NOT NULL,
+                    created_at DATETIME NOT NULL,
+                    updated_at DATETIME NOT NULL,
+                    FOREIGN KEY(area_id) REFERENCES areas (id),
+                    FOREIGN KEY(creator_id) REFERENCES users (id)
+                )
+                """
+            )
+        )
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_analysis_histories_id ON ai_analysis_histories (id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_analysis_histories_area_id ON ai_analysis_histories (area_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_analysis_histories_creator_id ON ai_analysis_histories (creator_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_analysis_histories_ai_session_id ON ai_analysis_histories (ai_session_id)"))
+
         if "fine_tickets" in table_names:
             fine_columns = {column["name"] for column in inspector.get_columns("fine_tickets")}
             if "area_id" not in fine_columns:

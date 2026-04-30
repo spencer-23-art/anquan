@@ -1,14 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Bot,
   CheckCircle2,
+  Clock3,
   Loader2,
+  RotateCcw,
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
 import api from "../lib/axios";
-import { useAuthStore } from "../stores/auth";
 import { useAIChatStore } from "../stores/aiChatStore";
 
 const PERMIT_LABELS = {
@@ -75,6 +76,18 @@ function normalizeText(text, fallback) {
   return String(text).trim();
 }
 
+function formatHistoryTime(value) {
+  if (!value) {
+    return "";
+  }
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
 function permitLabel(type) {
   return PERMIT_LABELS[type] || type || "未识别票证";
 }
@@ -136,6 +149,8 @@ export default function AIChatTask() {
   const [optionsLoading, setOptionsLoading] = useState(true);
   const [configInfo, setConfigInfo] = useState(null);
   const [pageMessage, setPageMessage] = useState("");
+  const [analysisHistory, setAnalysisHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [selectedRiskIndexes, setSelectedRiskIndexes] = useState([]);
   const [selectedPermitIndexes, setSelectedPermitIndexes] = useState([]);
   const [createForm, setCreateForm] = useState({
@@ -144,8 +159,23 @@ export default function AIChatTask() {
   });
   const chatViewportRef = useRef(null);
 
-  const { user } = useAuthStore();
   const { messages, draftTask, appendMessage, setDraftTask, reset } = useAIChatStore();
+
+  const loadHistory = useCallback(async (areaId) => {
+    setHistoryLoading(true);
+    try {
+      const params = { limit: 20 };
+      if (areaId) {
+        params.area_id = Number(areaId);
+      }
+      const { data } = await api.get("/ai/history", { params });
+      setAnalysisHistory(data || []);
+    } catch (err) {
+      setPageMessage(extractErrorMessage(err, "分析历史加载失败，请稍后重试。"));
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -202,6 +232,13 @@ export default function AIChatTask() {
   }, [messages, loading]);
 
   useEffect(() => {
+    if (optionsLoading) {
+      return;
+    }
+    loadHistory(createForm.area_id);
+  }, [createForm.area_id, loadHistory, optionsLoading]);
+
+  useEffect(() => {
     if (!draftTask?.items?.length) {
       setSelectedRiskIndexes([]);
     } else {
@@ -239,6 +276,69 @@ export default function AIChatTask() {
     return draftTask.permits.filter((_, index) => selectedPermitIndexes.includes(index));
   }, [draftTask, selectedPermitIndexes]);
 
+  const buildDraftFromHistory = (history) => {
+    const payload = history?.payload || {};
+    return {
+      session_id: history.session_id,
+      title: normalizeText(payload.summary || history.title, "AI 历史分析任务"),
+      items: (payload.items || []).map((item) => ({
+        ...item,
+        risk_description: normalizeText(item.risk_description, "待确认风险"),
+        inspection_points: normalizeText(item.inspection_points, ""),
+        photo_requirements: normalizeText(item.photo_requirements, ""),
+        measure: normalizeText(item.measure, ""),
+      })),
+      permits: payload.permits || [],
+      suppressed_permits: payload.suppressed_permits || [],
+    };
+  };
+
+  const applyHistory = (history) => {
+    const nextDraft = buildDraftFromHistory(history);
+    setDraftTask(nextDraft);
+    setSessionId(history.session_id);
+    if (history.area_id) {
+      setCreateForm((current) => ({ ...current, area_id: String(history.area_id) }));
+    }
+    setPageMessage("已从历史记录恢复分析结果，可直接调整负责人后重新下发。");
+  };
+
+  const dispatchHistory = async (history) => {
+    const nextDraft = buildDraftFromHistory(history);
+    const areaId = history.area_id || createForm.area_id;
+    if (!areaId || !createForm.assignee_id) {
+      setPageMessage("请先选择所属区域和负责人，再从历史记录重新下发。");
+      return;
+    }
+    if (!nextDraft.items.length) {
+      setPageMessage("这条历史记录没有可下发的隐患检查项。");
+      return;
+    }
+
+    setLoading(true);
+    setPageMessage("");
+    try {
+      await api.post("/ai/create-task", {
+        session_id: nextDraft.session_id,
+        title: nextDraft.title,
+        items: nextDraft.items,
+        permits: nextDraft.permits,
+        area_id: Number(areaId),
+        assignee_id: Number(createForm.assignee_id),
+      });
+      appendMessage({
+        role: "assistant",
+        content: `已根据历史记录重新下发 ${nextDraft.items.length} 条隐患检查项，并生成 ${nextDraft.permits.length} 张需办理票证。`,
+      });
+      setPageMessage("历史记录已重新下发。现场检查时请按排查要点逐项核查并上传佐证照片。");
+      await loadHistory(areaId);
+    } catch (err) {
+      setPageMessage(extractErrorMessage(err, "历史记录重新下发失败，请检查区域和负责人后重试。"));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const leftPanelStyle = draftTask ? { flex: 0.92, minWidth: 0 } : { flex: 1.12, minWidth: 0 };
   const rightPanelStyle = draftTask ? { flex: 1.08, minWidth: 0 } : { flex: 0.88, minWidth: 0 };
 
@@ -257,6 +357,7 @@ export default function AIChatTask() {
       const { data } = await api.post("/ai/chat", {
         session_id: sessionId,
         message: userMessage.content,
+        area_id: createForm.area_id ? Number(createForm.area_id) : undefined,
       });
 
       setSessionId(data.session_id);
@@ -264,7 +365,11 @@ export default function AIChatTask() {
       const parsed = safeParseChecklist(data.content);
       const displayContent =
         parsed?.type === "checklist"
-          ? `风险识别完成，已生成 ${parsed.items?.length || 0} 条隐患检查项和 ${parsed.permits?.length || 0} 张必须办理票证。`
+          ? `风险识别完成，已生成 ${parsed.items?.length || 0} 条隐患检查项和 ${parsed.permits?.length || 0} 张必须办理票证。${
+              parsed.suppressed_permits?.length
+                ? ` 同区域已有 ${parsed.suppressed_permits.length} 张有效票证，剩余有效期超过 20%，已自动不再重复提醒。`
+                : ""
+            }`
           : parsed?.content || data.content;
 
       appendMessage({
@@ -295,7 +400,9 @@ export default function AIChatTask() {
             measure: normalizeText(item.measure, ""),
           })),
           permits: uniquePermits,
+          suppressed_permits: parsed.suppressed_permits || [],
         });
+        await loadHistory(createForm.area_id);
       }
     } catch (err) {
       appendMessage({
@@ -314,10 +421,6 @@ export default function AIChatTask() {
     }
     if (!selectedRiskItems.length) {
       setPageMessage("请至少选择一条需要下发的隐患检查项。");
-      return;
-    }
-    if (!selectedPermits.length) {
-      setPageMessage("请至少选择一张必须办理的票证。");
       return;
     }
     if (!createForm.area_id || !createForm.assignee_id) {
@@ -388,6 +491,71 @@ export default function AIChatTask() {
           {pageMessage}
         </div>
       ) : null}
+
+      <section className="rounded-[24px] border border-slate-200 bg-white px-4 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.05)] sm:px-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2 text-slate-900">
+            <Clock3 size={18} className="text-emerald-600" />
+            <h2 className="text-base font-semibold">分析历史</h2>
+          </div>
+          <button
+            type="button"
+            onClick={() => loadHistory(createForm.area_id)}
+            disabled={historyLoading}
+            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
+          >
+            <RotateCcw size={15} className={historyLoading ? "animate-spin" : ""} />
+            刷新
+          </button>
+        </div>
+
+        <div className="mt-3 grid gap-3 lg:grid-cols-3">
+          {analysisHistory.length ? (
+            analysisHistory.slice(0, 6).map((history) => (
+              <div key={history.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-slate-900">{history.title}</div>
+                    <div className="mt-1 text-xs text-slate-500">
+                      {history.area_name || "未绑定区域"} · {formatHistoryTime(history.created_at)}
+                    </div>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-white px-2 py-1 text-xs text-slate-600">
+                    {history.item_count} 项
+                  </span>
+                </div>
+                <div className="mt-3 flex items-center justify-between gap-2 text-xs text-slate-600">
+                  <span>需办票证 {history.permit_count} 张</span>
+                  {history.payload?.suppressed_permits?.length ? (
+                    <span className="text-emerald-700">已过滤有效票证 {history.payload.suppressed_permits.length} 张</span>
+                  ) : null}
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => applyHistory(history)}
+                    className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+                  >
+                    载入草稿
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => dispatchHistory(history)}
+                    disabled={loading}
+                    className="rounded-2xl bg-emerald-600 px-3 py-2 text-xs font-medium text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-emerald-300"
+                  >
+                    重新下发
+                  </button>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500 lg:col-span-3">
+              {historyLoading ? "正在加载历史记录..." : "当前区域暂无分析历史。完成一次 AI 分析后，这里会自动保存。"}
+            </div>
+          )}
+        </div>
+      </section>
 
       <div className="flex flex-col gap-4 lg:flex-row lg:gap-6">
         <section
@@ -592,6 +760,12 @@ export default function AIChatTask() {
                     当前草稿没有识别出必须办理的票证。
                   </div>
                 )}
+
+                {draftTask.suppressed_permits?.length ? (
+                  <div className="mt-3 rounded-3xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs leading-5 text-emerald-800">
+                    同区域已有 {draftTask.suppressed_permits.length} 张同类型作业许可仍在有效期内，且剩余有效期超过 20%，本次已自动不再重复生成。
+                  </div>
+                ) : null}
               </div>
 
               <div>
