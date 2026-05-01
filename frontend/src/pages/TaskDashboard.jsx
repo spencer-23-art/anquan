@@ -1,5 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
-import { Trash2 } from "lucide-react";
+import {
+  CalendarClock,
+  Camera,
+  Clock3,
+  FilePlus2,
+  RefreshCcw,
+  ShieldCheck,
+  Trash2,
+  Upload,
+  UserRound,
+  X,
+} from "lucide-react";
 import api, { buildProtectedFileUrl } from "../lib/axios";
 import { useAuthStore } from "../stores/auth";
 
@@ -86,6 +96,7 @@ export default function TaskDashboard() {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expandedTask, setExpandedTask] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState(null);
   const { user } = useAuthStore();
 
   const fetchTasks = async () => {
@@ -318,17 +329,21 @@ export default function TaskDashboard() {
                                   {item.status === "checked" ? (
                                     <div className="mt-2 space-y-2">
                                       {item.photo_url ? (
-                                        <img
-                                          src={buildProtectedFileUrl(item.photo_url)}
-                                          alt="Inspection"
-                                          className="h-32 w-full cursor-zoom-in rounded object-cover hover:brightness-110"
-                                          onClick={() =>
-                                            window.open(
-                                              buildProtectedFileUrl(item.photo_url),
-                                              "_blank"
-                                            )
-                                          }
-                                        />
+                                        <div className="grid grid-cols-3 gap-2">
+                                          {(item.photo_url || "").split(",").filter(Boolean).map((url, pIdx) => (
+                                            <div
+                                              key={pIdx}
+                                              className="relative aspect-square cursor-zoom-in overflow-hidden rounded-lg border border-border"
+                                              onClick={() => setPreviewUrl(buildProtectedFileUrl(url))}
+                                            >
+                                              <img
+                                                src={buildProtectedFileUrl(url)}
+                                                alt="Inspection"
+                                                className="h-full w-full object-cover transition hover:scale-105"
+                                              />
+                                            </div>
+                                          ))}
+                                        </div>
                                       ) : null}
 
                                       {item.note ? (
@@ -360,6 +375,24 @@ export default function TaskDashboard() {
           ))}
         </div>
       )}
+
+      {previewUrl ? (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 p-4 backdrop-blur-sm"
+          onClick={() => setPreviewUrl(null)}
+        >
+          <div className="relative flex max-h-[92vh] w-full max-w-5xl flex-col items-center justify-center" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => setPreviewUrl(null)}
+              className="absolute -right-2 -top-12 rounded-full p-2 text-white/70 transition hover:bg-white/10 hover:text-white md:-right-12 md:top-0"
+            >
+              <X size={24} />
+            </button>
+            <img src={previewUrl} alt="Preview" className="max-h-[90vh] max-w-full rounded-lg object-contain" />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

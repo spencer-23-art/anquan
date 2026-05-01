@@ -204,8 +204,13 @@ async def check_item(
     with open(filepath, "wb") as file_obj:
         file_obj.write(content)
 
+    new_url = f"/uploads/checklist/{task_id}/{filename}"
+    # Append to existing photos (comma-separated)
+    existing = [u for u in (item.photo_url or "").split(",") if u.strip()]
+    existing.append(new_url)
+    item.photo_url = ",".join(existing)
+
     item.status = CheckItemStatus.CHECKED
-    item.photo_url = f"/uploads/checklist/{task_id}/{filename}"
     item.note = note
     item.checked_at = datetime.utcnow()
     db.commit()
@@ -222,7 +227,50 @@ async def check_item(
         task.completed_at = datetime.utcnow()
         db.commit()
 
-    return {"message": "Checklist item checked"}
+    return {"message": "Checklist item checked", "photo_urls": existing}
+
+
+@router.post("/{task_id}/items/{item_id}/add-photo")
+async def add_photo_to_item(
+    task_id: int,
+    item_id: int,
+    photo: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Add an additional photo to an already-checked checklist item."""
+    item = (
+        db.query(ChecklistItem)
+        .filter(ChecklistItem.id == item_id, ChecklistItem.task_id == task_id)
+        .first()
+    )
+    if not item:
+        raise HTTPException(status_code=404, detail="Checklist item not found")
+
+    task = db.query(Task).filter(Task.id == task_id).first()
+    if not task or task.assignee_id != current_user.id:
+        raise HTTPException(status_code=403, detail="No access to this task")
+
+    if not photo.content_type or not photo.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Photo must be an image")
+
+    upload_dir = os.path.join(settings.UPLOAD_DIR, "checklist", str(task_id))
+    os.makedirs(upload_dir, exist_ok=True)
+    ext = photo.filename.rsplit(".", 1)[-1] if photo.filename and "." in photo.filename else "jpg"
+    filename = f"{item_id}_{datetime.now().strftime('%Y%m%d%H%M%S%f')}.{ext}"
+    filepath = os.path.join(upload_dir, filename)
+
+    content = await read_limited_upload(photo)
+    with open(filepath, "wb") as file_obj:
+        file_obj.write(content)
+
+    new_url = f"/uploads/checklist/{task_id}/{filename}"
+    existing = [u for u in (item.photo_url or "").split(",") if u.strip()]
+    existing.append(new_url)
+    item.photo_url = ",".join(existing)
+    db.commit()
+
+    return {"message": "Photo added", "photo_urls": existing}
 
 
 @router.post("/{task_id}/permits/{permit_index}/photo", response_model=TaskOut)

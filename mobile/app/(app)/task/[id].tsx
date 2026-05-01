@@ -73,8 +73,9 @@ export default function ChecklistScreen() {
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [cameraActive, setCameraActive] = useState(false);
-  const [cameraTarget, setCameraTarget] = useState<{ kind: 'check' | 'permit'; id?: number; index?: number } | null>(null);
+  const [cameraTarget, setCameraTarget] = useState<{ kind: 'check' | 'permit' | 'add_photo'; id?: number; index?: number } | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const cameraRef = useRef<any>(null);
 
   const loadTask = useCallback(async () => {
@@ -94,7 +95,7 @@ export default function ChecklistScreen() {
     loadTask();
   }, [loadTask]);
 
-  const openCamera = async (target: { kind: 'check' | 'permit'; id?: number; index?: number }) => {
+  const openCamera = async (target: { kind: 'check' | 'permit' | 'add_photo'; id?: number; index?: number }) => {
     let currentPermission = permission;
     if (!currentPermission?.granted) {
       currentPermission = await requestPermission();
@@ -126,6 +127,8 @@ export default function ChecklistScreen() {
       if (cameraTarget.kind === 'check') {
         formData.append('note', `移动端现场拍照，压缩后约 ${Math.ceil(compressedImage.size / 1024)}KB`);
         await api.post(`tasks/${id}/items/${cameraTarget.id}/check`, formData);
+      } else if (cameraTarget.kind === 'add_photo') {
+        await api.post(`tasks/${id}/items/${cameraTarget.id}/add-photo`, formData);
       } else {
         await api.post(`tasks/${id}/permits/${cameraTarget.index}/photo`, formData);
       }
@@ -252,22 +255,35 @@ export default function ChecklistScreen() {
             </View>
 
             <View style={styles.actionRow}>
-              <TouchableOpacity style={styles.photoButton} onPress={() => openCamera({ kind: 'check', id: item.id })}>
-                {photoUri ? (
-                  <Image source={{ uri: photoUri }} style={styles.photoPreview} />
-                ) : (
+              {item.status === 'checked' ? (
+                <View style={{ flex: 1 }}>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
+                    {(item.photo_url || '').split(',').filter(Boolean).map((url: string, index: number) => (
+                      <TouchableOpacity key={index} onPress={() => setPreviewUrl(protectedFileUrl(url))}>
+                        <Image source={{ uri: protectedFileUrl(url) }} style={styles.photoPreview} />
+                      </TouchableOpacity>
+                    ))}
+                    <TouchableOpacity style={styles.addPhotoBtn} onPress={() => openCamera({ kind: 'add_photo', id: item.id })}>
+                      <Text style={styles.addPhotoPlus}>+</Text>
+                      <Text style={styles.addPhotoText}>追加照片</Text>
+                    </TouchableOpacity>
+                  </ScrollView>
+                </View>
+              ) : (
+                <TouchableOpacity style={styles.photoButton} onPress={() => openCamera({ kind: 'check', id: item.id })}>
                   <View style={styles.photoPlaceholder}>
                     <Camera size={24} color="#0f766e" />
                   </View>
-                )}
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.photoButtonTitle}>{photoUri ? '重新现场拍照' : '现场拍照确认'}</Text>
-                  <Text style={styles.photoButtonSub}>只能打开相机，不能从相册选择</Text>
-                </View>
-              </TouchableOpacity>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.photoButtonTitle}>现场拍照确认</Text>
+                    <Text style={styles.photoButtonSub}>只能打开相机，不能从相册选择</Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+              
               <View style={[styles.checkStatus, item.status === 'checked' ? styles.checkedStatus : styles.pendingStatus]}>
                 <CheckCircle2 size={14} color={item.status === 'checked' ? '#059669' : '#94a3b8'} />
-                <Text style={[styles.checkStatusText, { color: item.status === 'checked' ? '#059669' : '#64748b' }]}>{item.status === 'checked' ? '已拍照' : '待拍照'}</Text>
+                <Text style={[styles.checkStatusText, { color: item.status === 'checked' ? '#059669' : '#64748b' }]}>{item.status === 'checked' ? '已排查' : '待排查'}</Text>
               </View>
             </View>
           </View>
@@ -286,6 +302,12 @@ export default function ChecklistScreen() {
       >
         <Text style={styles.submitBtnText}>确认提交任务归档</Text>
       </TouchableOpacity>
+      
+      {previewUrl ? (
+        <TouchableOpacity style={styles.previewContainer} onPress={() => setPreviewUrl(null)} activeOpacity={1}>
+            <Image source={{ uri: previewUrl }} style={styles.previewImage} resizeMode="contain" />
+        </TouchableOpacity>
+      ) : null}
     </ScrollView>
   );
 }
@@ -331,11 +353,14 @@ const styles = StyleSheet.create({
   guidanceTitle: { color: '#0f172a', fontWeight: '900', marginBottom: 5, fontSize: 13 },
   guidanceText: { color: '#334155', fontSize: 13, lineHeight: 20 },
   actionRow: { marginTop: 12, gap: 10 },
-  photoButton: { borderWidth: 1, borderColor: '#b7d8d0', backgroundColor: '#f8fffd', padding: 10, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  photoPlaceholder: { width: 74, height: 58, borderRadius: 12, backgroundColor: '#ccfbf1', alignItems: 'center', justifyContent: 'center' },
-  photoPreview: { width: 74, height: 58, borderRadius: 12, backgroundColor: '#e2e8f0' },
+  photoButton: { borderWidth: 1, borderColor: '#b7d8d0', backgroundColor: '#f8fffd', padding: 10, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
+  photoPlaceholder: { width: 74, height: 74, borderRadius: 12, backgroundColor: '#ccfbf1', alignItems: 'center', justifyContent: 'center' },
+  photoPreview: { width: 74, height: 74, borderRadius: 12, backgroundColor: '#e2e8f0' },
   photoButtonTitle: { color: '#0f172a', fontWeight: '900', fontSize: 14 },
   photoButtonSub: { color: '#64748b', marginTop: 3, fontSize: 12 },
+  addPhotoBtn: { width: 74, height: 74, borderRadius: 12, backgroundColor: '#f1f5f9', borderWidth: 1, borderColor: '#cbd5e1', borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center' },
+  addPhotoPlus: { fontSize: 24, color: '#94a3b8', fontWeight: '300', marginBottom: -4 },
+  addPhotoText: { fontSize: 10, color: '#64748b', fontWeight: '700' },
   checkStatus: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
   checkedStatus: { backgroundColor: '#dcfce7' },
   pendingStatus: { backgroundColor: '#f1f5f9' },
@@ -353,4 +378,6 @@ const styles = StyleSheet.create({
   captureInner: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#fff' },
   cancelButton: { marginTop: 18, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 999, backgroundColor: 'rgba(15,23,42,0.72)' },
   cancelText: { color: '#fff', fontWeight: '900' },
+  previewContainer: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.9)', zIndex: 1000, justifyContent: 'center', alignItems: 'center' },
+  previewImage: { width: '100%', height: '100%' },
 });
