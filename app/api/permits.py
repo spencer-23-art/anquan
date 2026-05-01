@@ -94,16 +94,8 @@ def scoped_permit_query(db: Session, current_user: User):
     )
     query = query.filter(~((WorkPermit.task_id.isnot(None)) & (WorkPermit.photo_url.is_(None))))
     allowed_ids = managed_area_ids(db, current_user)
-    if allowed_ids is not None:
-        if current_user.role == UserRole.ADMIN:
-            query = query.filter(WorkPermit.area_id.in_(allowed_ids))
-        else:
-            assigned_task_ids = db.query(Task.id).filter(Task.assignee_id == current_user.id)
-            query = query.filter(
-                (WorkPermit.applicant_id == current_user.id)
-                | (WorkPermit.responsible_person == current_user.real_name)
-                | (WorkPermit.task_id.in_(assigned_task_ids))
-            )
+    if allowed_ids is not None and current_user.role == UserRole.ADMIN:
+        query = query.filter(WorkPermit.area_id.in_(allowed_ids))
     return query
 
 
@@ -118,17 +110,7 @@ def ensure_permit_write_access(db: Session, permit: WorkPermit, current_user: Us
     if current_user.role == UserRole.ADMIN:
         ensure_area_access(db, current_user, permit.area_id)
         return
-    assigned_task = (
-        permit.task_id
-        and db.query(Task.id)
-        .filter(Task.id == permit.task_id, Task.assignee_id == current_user.id)
-        .first()
-    )
-    if (
-        permit.applicant_id != current_user.id
-        and permit.responsible_person != current_user.real_name
-        and not assigned_task
-    ):
+    if permit.applicant_id != current_user.id:
         raise HTTPException(status_code=403, detail="No permission to update this permit")
 
 
@@ -187,7 +169,8 @@ def list_permits(
     if status_filter:
         query = query.filter(WorkPermit.status == status_filter)
     if area_id:
-        ensure_area_access(db, current_user, area_id)
+        if current_user.role == UserRole.ADMIN:
+            ensure_area_access(db, current_user, area_id)
         query = query.filter(WorkPermit.area_id == area_id)
     permits = query.order_by(WorkPermit.created_at.desc()).all()
 
@@ -273,9 +256,9 @@ async def create_manual_permit(
     if current_user.role == UserRole.ADMIN:
         ensure_area_access(db, current_user, area_id)
     else:
-        has_task_area = db.query(Task.id).filter(Task.assignee_id == current_user.id, Task.area_id == area_id).first()
-        if not has_task_area:
-            raise HTTPException(status_code=403, detail="No access to this area")
+        area = db.query(Area.id).filter(Area.id == area_id).first()
+        if not area:
+            raise HTTPException(status_code=404, detail="Area not found")
     start_time = get_permit_start_time(type)
     end_time = calculate_end_time(type, start_time)
     photo_url = await save_permit_photo(photo, current_user) if photo else None

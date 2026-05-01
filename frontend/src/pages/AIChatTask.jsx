@@ -492,71 +492,6 @@ export default function AIChatTask() {
         </div>
       ) : null}
 
-      <section className="rounded-[24px] border border-slate-200 bg-white px-4 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.05)] sm:px-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-2 text-slate-900">
-            <Clock3 size={18} className="text-emerald-600" />
-            <h2 className="text-base font-semibold">分析历史</h2>
-          </div>
-          <button
-            type="button"
-            onClick={() => loadHistory(createForm.area_id)}
-            disabled={historyLoading}
-            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
-          >
-            <RotateCcw size={15} className={historyLoading ? "animate-spin" : ""} />
-            刷新
-          </button>
-        </div>
-
-        <div className="mt-3 grid gap-3 lg:grid-cols-3">
-          {analysisHistory.length ? (
-            analysisHistory.slice(0, 6).map((history) => (
-              <div key={history.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-slate-900">{history.title}</div>
-                    <div className="mt-1 text-xs text-slate-500">
-                      {history.area_name || "未绑定区域"} · {formatHistoryTime(history.created_at)}
-                    </div>
-                  </div>
-                  <span className="shrink-0 rounded-full bg-white px-2 py-1 text-xs text-slate-600">
-                    {history.item_count} 项
-                  </span>
-                </div>
-                <div className="mt-3 flex items-center justify-between gap-2 text-xs text-slate-600">
-                  <span>需办票证 {history.permit_count} 张</span>
-                  {history.payload?.suppressed_permits?.length ? (
-                    <span className="text-emerald-700">已过滤有效票证 {history.payload.suppressed_permits.length} 张</span>
-                  ) : null}
-                </div>
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => applyHistory(history)}
-                    className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
-                  >
-                    载入草稿
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => dispatchHistory(history)}
-                    disabled={loading}
-                    className="rounded-2xl bg-emerald-600 px-3 py-2 text-xs font-medium text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-emerald-300"
-                  >
-                    重新下发
-                  </button>
-                </div>
-              </div>
-            ))
-          ) : (
-            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500 lg:col-span-3">
-              {historyLoading ? "正在加载历史记录..." : "当前区域暂无分析历史。完成一次 AI 分析后，这里会自动保存。"}
-            </div>
-          )}
-        </div>
-      </section>
-
       <div className="flex flex-col gap-4 lg:flex-row lg:gap-6">
         <section
           style={leftPanelStyle}
@@ -647,6 +582,71 @@ export default function AIChatTask() {
             >
               发送分析
             </button>
+          </div>
+
+          <div className="mt-5 rounded-[24px] border border-slate-200 bg-slate-50 px-4 py-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-2 text-slate-900">
+                <Clock3 size={18} className="text-emerald-600" />
+                <h2 className="text-base font-semibold">分析历史</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => loadHistory(createForm.area_id)}
+                disabled={historyLoading}
+                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-300"
+              >
+                <RotateCcw size={15} className={historyLoading ? "animate-spin" : ""} />
+                刷新
+              </button>
+            </div>
+
+            <div className="mt-3 grid gap-3 xl:grid-cols-2">
+              {analysisHistory.length ? (
+                analysisHistory.slice(0, 6).map((history) => (
+                  <div key={history.id} className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-slate-900">{history.title}</div>
+                        <div className="mt-1 text-xs text-slate-500">
+                          {history.area_name || "未绑定区域"} · {formatHistoryTime(history.created_at)}
+                        </div>
+                      </div>
+                      <span className="shrink-0 rounded-full bg-slate-50 px-2 py-1 text-xs text-slate-600">
+                        {history.item_count} 项
+                      </span>
+                    </div>
+                    <div className="mt-3 flex items-center justify-between gap-2 text-xs text-slate-600">
+                      <span>需办票证 {history.permit_count} 张</span>
+                      {history.payload?.suppressed_permits?.length ? (
+                        <span className="text-emerald-700">已过滤有效票证 {history.payload.suppressed_permits.length} 张</span>
+                      ) : null}
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => applyHistory(history)}
+                        className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+                      >
+                        载入草稿
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => dispatchHistory(history)}
+                        disabled={loading}
+                        className="rounded-2xl bg-emerald-600 px-3 py-2 text-xs font-medium text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-emerald-300"
+                      >
+                        重新下发
+                      </button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-5 text-sm text-slate-500 xl:col-span-2">
+                  {historyLoading ? "正在加载历史记录..." : "当前区域暂无分析历史。完成一次 AI 分析后，这里会自动保存。"}
+                </div>
+              )}
+            </div>
           </div>
         </section>
 

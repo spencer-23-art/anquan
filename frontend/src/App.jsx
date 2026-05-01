@@ -47,7 +47,11 @@ function App() {
       }>
         <Route index element={<TaskDashboard />} />
         <Route path="dashboard" element={<TaskDashboard />} />
-        <Route path="ai-chat" element={<AIChatTask />} />
+        <Route path="ai-chat" element={
+          <ProtectedRoute adminOnly={true}>
+            <AIChatTask />
+          </ProtectedRoute>
+        } />
         <Route path="permits" element={<PermitMonitor />} />
         <Route path="fines" element={<FineTicketCenter />} />
         

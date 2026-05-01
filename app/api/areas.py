@@ -17,12 +17,13 @@ router = APIRouter(prefix="/api/areas", tags=["areas"])
 
 @router.get("", response_model=List[AreaOut])
 def list_areas(
+    include_all: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     query = db.query(Area)
     allowed_ids = managed_area_ids(db, current_user)
-    if allowed_ids is not None:
+    if allowed_ids is not None and not include_all:
         if not allowed_ids:
             task_area_ids = db.query(Task.area_id).filter(Task.assignee_id == current_user.id)
             permit_area_ids = db.query(WorkPermit.area_id).filter(

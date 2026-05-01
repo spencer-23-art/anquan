@@ -17,7 +17,7 @@ import { useAuthStore } from "../stores/auth";
 
 const links = [
   { to: "/dashboard", icon: LayoutDashboard, label: "任务执行", roles: ["admin", "inspector"] },
-  { to: "/ai-chat", icon: Bot, label: "AI 风险分析", roles: ["admin", "inspector"] },
+  { to: "/ai-chat", icon: Bot, label: "AI 风险分析", roles: ["admin"] },
   { to: "/permits", icon: FileCheck, label: "作业许可", roles: ["admin", "inspector"] },
   { to: "/fines", icon: FileText, label: "在线罚单", roles: ["admin", "inspector"] },
   { to: "/areas", icon: MapIcon, label: "区域管理", roles: ["admin"] },

@@ -32,7 +32,7 @@ export default function Login() {
       <div className="w-full max-w-md rounded-[28px] border border-white/80 bg-white/95 p-6 shadow-[0_20px_70px_rgba(15,23,42,0.12)] backdrop-blur sm:p-8">
         <h1 className="text-2xl font-bold text-slate-900 sm:text-3xl">安全巡检管理系统</h1>
         <p className="mt-2 text-sm leading-6 text-slate-500">
-          登录后进入作业许可、AI 风险分析、在线罚单等核心功能。
+          登录后进入安全任务、作业许可、在线罚单等核心功能。
         </p>
 
         <form className="mt-8 space-y-4" onSubmit={handleSubmit}>
