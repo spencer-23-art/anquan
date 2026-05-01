@@ -80,15 +80,9 @@ def can_access_upload(db: Session, user: User, upload_url: str) -> bool:
             return True
         return False
 
-    if permit_query.filter(
-        (WorkPermit.applicant_id == user.id)
-        | (WorkPermit.responsible_person == user.real_name)
-        | WorkPermit.task_id.in_(
-            db.query(Task.id).filter(Task.assignee_id == user.id)
-        )
-    ).first():
+    if permit_query.first():
         return True
-    if task_query.filter(Task.assignee_id == user.id).first():
+    if task_query.first():
         return True
     return False
 

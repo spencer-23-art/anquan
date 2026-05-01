@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Dimensions, FlatList, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { Camera, RefreshCcw, Upload } from 'lucide-react-native';
@@ -28,6 +28,10 @@ const PERMIT_OPTIONS = Object.entries(PERMIT_LABELS).map(([value, label]) => ({ 
 async function compressPhoto(uri: string) {
   return manipulateAsync(uri, [{ resize: { width: 900 } }], { compress: 0.45, format: SaveFormat.JPEG });
 }
+
+const SCREEN_W = Dimensions.get('window').width;
+const CARD_PADDING = 16 * 2 + 16 * 2; // page padding + card padding
+const PHOTO_W = SCREEN_W - CARD_PADDING;
 
 export default function PermitsScreen() {
   const { colors } = useAppTheme();
@@ -285,9 +289,9 @@ const styles = StyleSheet.create({
   secondaryText: { fontWeight: '900' },
   close: { textAlign: 'center', padding: 12, fontWeight: '800' },
   disabled: { opacity: 0.55 },
-  permitPhoto: { width: '100%', height: 160, borderRadius: 14, marginTop: 12 },
+  permitPhoto: { width: PHOTO_W, height: PHOTO_W * 0.55, borderRadius: 14, marginTop: 12, backgroundColor: '#f1f5f9' },
   photoHint: { marginTop: 4, fontSize: 11, fontWeight: '700', textAlign: 'center' },
   needPhoto: { marginTop: 10, fontWeight: '800' },
   previewBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.92)', alignItems: 'center', justifyContent: 'center' },
-  previewImage: { width: '100%', height: '80%' },
+  previewImage: { width: SCREEN_W, height: SCREEN_W * 1.3 },
 });
