@@ -25,6 +25,21 @@ const PERMIT_LABELS: Record<string, string> = {
 
 const PERMIT_OPTIONS = Object.entries(PERMIT_LABELS).map(([value, label]) => ({ value, label }));
 
+const PERMIT_META: Record<string, string> = {
+  hot_work_level1: '默认 8 小时',
+  hot_work_level2: '默认 3 天',
+  hot_work_level3: '默认 7 天',
+  height_level1: '默认 7 天',
+  height_level2: '默认 7 天',
+  height_level3: '默认 7 天',
+  height_special: '默认 8 小时',
+  confined_space: '默认 12 小时',
+  lifting: '默认 7 天',
+  excavation: '默认 7 天',
+  electrical: '默认 7 天',
+  other: '默认 7 天',
+};
+
 async function compressPhoto(uri: string) {
   return manipulateAsync(uri, [{ resize: { width: 900 } }], { compress: 0.45, format: SaveFormat.JPEG });
 }
@@ -191,54 +206,88 @@ export default function PermitsScreen() {
     const remaining = getRemainingInfo(item);
     const isUrgent = remaining.pct > 0 && remaining.pct < 20;
     const isNotExpired = item.status !== 'expired';
+    const statusColor = item.status === 'expired' ? colors.subtext : isUrgent ? colors.danger : item.status === 'warning' ? colors.amber : colors.primary;
+    const statusBg = item.status === 'expired' ? colors.cardSoft : isUrgent ? `${colors.danger}18` : item.status === 'warning' ? '#fef3c7' : colors.primarySoft;
+    const countdownBg = isUrgent ? `${colors.danger}15` : `${colors.amber}15`;
+
     return (
       <View style={[styles.card, { backgroundColor: colors.card, borderColor: isUrgent ? colors.danger : item.status === 'warning' ? colors.amber : colors.border }]}>
+        {/* 头部：Permit #ID + 类型 + 状态 */}
         <View style={styles.rowBetween}>
-          <Text style={[styles.title, { color: colors.text }]}>{PERMIT_LABELS[item.type] || item.type}</Text>
-          <Text style={[styles.badge, { color: item.status === 'expired' ? colors.subtext : item.status === 'warning' ? colors.amber : colors.primary }]}>
-            {item.status === 'expired' ? '已过期' : item.status === 'warning' ? '即将到期' : '有效中'}
-          </Text>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.permitId, { color: colors.subtext }]}>Permit #{item.id}</Text>
+            <Text style={[styles.title, { color: colors.text }]}>{PERMIT_LABELS[item.type] || item.type}</Text>
+            <Text style={[styles.areaLabel, { color: colors.subtext }]}>{item.area?.name || '未分配区域'}</Text>
+          </View>
+          <View style={[styles.statusBadge, { backgroundColor: statusBg }]}>
+            <Text style={[styles.statusText, { color: statusColor }]}>
+              {item.status === 'expired' ? '已过期' : isUrgent ? '即将到期' : item.status === 'warning' ? '即将到期' : '有效中'}
+            </Text>
+          </View>
         </View>
-        {isNotExpired && (
-          <Text style={[styles.countdown, { color: isUrgent ? colors.danger : colors.amber }]}>
-            ⏱ {remaining.text}{isUrgent ? '  ⚠️ 即将到期' : ''}
-          </Text>
-        )}
-        <Text style={[styles.meta, { color: colors.subtext }]}>区域：{item.area?.name || '-'}</Text>
-        <Text style={[styles.meta, { color: colors.subtext }]}>上传人：{item.applicant?.real_name || item.applicant?.username || '-'}</Text>
-        <Text style={[styles.meta, { color: colors.subtext }]}>责任人：{item.responsible_person || '-'}</Text>
-        <Text style={[styles.meta, { color: colors.subtext }]}>有效期：{item.start_time ? new Date(item.start_time).toLocaleString() : '-'} 至 {item.end_time ? new Date(item.end_time).toLocaleString() : '-'}</Text>
+
+        {/* 两列网格：责任人 + 倒计时 */}
+        <View style={styles.infoGrid}>
+          <View style={[styles.infoCell, { backgroundColor: colors.cardSoft }]}>
+            <Text style={[styles.infoLabel, { color: colors.subtext }]}>👤 责任人</Text>
+            <Text style={[styles.infoValue, { color: colors.text }]}>{item.responsible_person || '未填写'}</Text>
+          </View>
+          <View style={[styles.infoCell, { backgroundColor: colors.cardSoft }]}>
+            <Text style={[styles.infoLabel, { color: colors.subtext }]}>⏱ 倒计时</Text>
+            {isNotExpired ? (
+              <View style={[styles.countdownBadge, { backgroundColor: countdownBg }]}>
+                <Text style={[styles.countdownText, { color: isUrgent ? colors.danger : colors.amber }]}>{remaining.text}</Text>
+              </View>
+            ) : (
+              <Text style={[styles.infoValue, { color: colors.subtext }]}>已过期</Text>
+            )}
+          </View>
+        </View>
+
+        {/* 两列网格：生效时间 + 到期时间 */}
+        <View style={styles.infoGrid}>
+          <View style={[styles.infoCell, { backgroundColor: colors.cardSoft }]}>
+            <Text style={[styles.infoLabel, { color: colors.subtext }]}>📅 生效时间</Text>
+            <Text style={[styles.infoTime, { color: colors.text }]}>{item.start_time ? new Date(item.start_time).toLocaleString() : '-'}</Text>
+          </View>
+          <View style={[styles.infoCell, { backgroundColor: colors.cardSoft }]}>
+            <Text style={[styles.infoLabel, { color: colors.subtext }]}>🛡 到期时间</Text>
+            <Text style={[styles.infoTime, { color: colors.text }]}>{item.end_time ? new Date(item.end_time).toLocaleString() : '-'}</Text>
+          </View>
+        </View>
+
+        {/* 描述 */}
+        <View style={[styles.descBox, { backgroundColor: colors.cardSoft }]}>
+          <Text style={[styles.infoLabel, { color: colors.subtext }]}>描述</Text>
+          <Text style={[styles.descText, { color: colors.text }]} numberOfLines={2}>{item.description || '暂无补充说明'}</Text>
+        </View>
+
+        {/* 照片 */}
         {item.photo_url ? (
           <TouchableOpacity onPress={() => setPreviewUrl(protectedFileUrl(item.photo_url))} activeOpacity={0.85}>
-            <Image
-              source={{ uri: protectedFileUrl(item.photo_url) }}
-              style={styles.permitPhoto}
-              resizeMode="cover"
-            />
+            <Image source={{ uri: protectedFileUrl(item.photo_url) }} style={styles.permitPhoto} resizeMode="cover" />
             <Text style={[styles.photoHint, { color: colors.primary }]}>点击查看大图</Text>
           </TouchableOpacity>
         ) : (
           <Text style={[styles.needPhoto, { color: colors.amber }]}>未上传许可照片</Text>
         )}
-        {canEdit && isNotExpired && (
-          <TouchableOpacity
-            style={[styles.renewButton, { backgroundColor: isUrgent ? colors.danger : colors.primary }]}
-            onPress={() => openCamera({ type: 'renew', permitId: item.id })}
-          >
-            <RefreshCcw size={16} color="#fff" />
-            <Text style={styles.renewText}>拍照续期</Text>
-          </TouchableOpacity>
-        )}
-        {canEdit && (
-          <View style={styles.actionRow}>
-            <TouchableOpacity style={[styles.actionBtn, { borderColor: colors.border }]} onPress={() => openCamera({ type: 'photo', permitId: item.id })}>
-              <Upload size={16} color={colors.primary} /><Text style={[styles.actionText, { color: colors.text }]}>换照片</Text>
-            </TouchableOpacity>
+
+        {/* 底部操作栏 */}
+        <View style={[styles.cardFooter, { borderTopColor: colors.border }]}>
+          <Text style={[styles.footerNote, { color: colors.subtext }]}>{PERMIT_META[item.type] || ''}</Text>
+          <View style={styles.footerActions}>
+            {canEdit && isNotExpired && (
+              <TouchableOpacity style={[styles.footerBtn, { backgroundColor: isUrgent ? colors.danger : colors.primary }]} onPress={() => openCamera({ type: 'renew', permitId: item.id })}>
+                <RefreshCcw size={13} color="#fff" /><Text style={styles.footerBtnText}>续期</Text>
+              </TouchableOpacity>
+            )}
+            {canEdit && (
+              <TouchableOpacity style={[styles.footerBtnOutline, { borderColor: colors.border }]} onPress={() => openCamera({ type: 'photo', permitId: item.id })}>
+                <Upload size={13} color={colors.text} /><Text style={[styles.footerBtnOutlineText, { color: colors.text }]}>换照片</Text>
+              </TouchableOpacity>
+            )}
           </View>
-        )}
-        {!canEdit && (
-          <Text style={[styles.readOnlyHint, { color: colors.subtext }]}>仅查看：只能修改自己上传的作业许可</Text>
-        )}
+        </View>
       </View>
     );
   };
@@ -315,25 +364,44 @@ const styles = StyleSheet.create({
   page: { flex: 1, padding: 16 },
   createButton: { borderRadius: 16, padding: 15, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, marginBottom: 14 },
   createText: { color: '#fff', fontWeight: '900' },
-  card: { borderWidth: 1, borderRadius: 20, padding: 16, marginBottom: 12 },
-  rowBetween: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
-  title: { fontSize: 17, fontWeight: '900', flex: 1 },
-  badge: { fontWeight: '900' },
-  meta: { fontSize: 12, marginTop: 8, lineHeight: 18 },
-  countdown: { fontSize: 13, fontWeight: '900', marginTop: 6 },
-  photoOk: { marginTop: 10, fontWeight: '800' },
-  needPhoto: { marginTop: 10, fontWeight: '800' },
-  readOnlyHint: { marginTop: 12, fontSize: 12, fontWeight: '800' },
-  renewButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 14, paddingVertical: 12, marginTop: 14 },
-  renewText: { color: '#fff', fontWeight: '900', fontSize: 14 },
-  actionRow: { flexDirection: 'row', gap: 10, marginTop: 10 },
-  actionBtn: { borderWidth: 1, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 6 },
-  actionText: { fontWeight: '800' },
+  // Card
+  card: { borderWidth: 1, borderRadius: 20, overflow: 'hidden', marginBottom: 12 },
+  rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, padding: 16, paddingBottom: 0 },
+  permitId: { fontSize: 10, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1.5 },
+  title: { fontSize: 16, fontWeight: '900', marginTop: 2 },
+  areaLabel: { fontSize: 12, marginTop: 2 },
+  statusBadge: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
+  statusText: { fontSize: 11, fontWeight: '700' },
+  // Info grids
+  infoGrid: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, marginTop: 10 },
+  infoCell: { flex: 1, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 10 },
+  infoLabel: { fontSize: 11, fontWeight: '600' },
+  infoValue: { fontSize: 14, fontWeight: '700', marginTop: 4 },
+  infoTime: { fontSize: 11, fontWeight: '600', marginTop: 4 },
+  countdownBadge: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, marginTop: 4, alignSelf: 'flex-start' },
+  countdownText: { fontSize: 11, fontWeight: '700' },
+  // Description
+  descBox: { borderRadius: 14, paddingHorizontal: 12, paddingVertical: 10, marginHorizontal: 16, marginTop: 10 },
+  descText: { fontSize: 12, lineHeight: 18, marginTop: 4 },
+  // Photo
+  permitPhoto: { width: PHOTO_W, height: PHOTO_W * 0.55, borderRadius: 14, marginTop: 12, marginHorizontal: 16, backgroundColor: '#f1f5f9' },
+  photoHint: { marginTop: 4, fontSize: 11, fontWeight: '700', textAlign: 'center' },
+  needPhoto: { marginTop: 10, marginHorizontal: 16, fontWeight: '800' },
+  // Footer
+  cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, marginTop: 12, paddingHorizontal: 16, paddingVertical: 10 },
+  footerNote: { fontSize: 11, flex: 1 },
+  footerActions: { flexDirection: 'row', gap: 6, alignItems: 'center' },
+  footerBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6 },
+  footerBtnText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  footerBtnOutline: { flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6 },
+  footerBtnOutlineText: { fontSize: 12, fontWeight: '700' },
+  // Camera
   cameraOverlay: { flex: 1, justifyContent: 'flex-end', alignItems: 'center', paddingBottom: 44, backgroundColor: 'transparent' },
   cameraText: { position: 'absolute', top: 54, color: '#fff', backgroundColor: 'rgba(0,0,0,0.45)', padding: 10, borderRadius: 12, fontWeight: '900' },
   capture: { width: 82, height: 82, borderRadius: 41, backgroundColor: 'rgba(255,255,255,0.35)', alignItems: 'center', justifyContent: 'center' },
   captureInner: { width: 62, height: 62, borderRadius: 31, backgroundColor: '#fff' },
   cancel: { color: '#fff', marginTop: 18, fontWeight: '900' },
+  // Create modal
   modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(15,23,42,0.45)' },
   modalCard: { borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 18 },
   modalTitle: { fontSize: 20, fontWeight: '900', marginBottom: 14 },
@@ -347,9 +415,7 @@ const styles = StyleSheet.create({
   secondaryText: { fontWeight: '900' },
   close: { textAlign: 'center', padding: 12, fontWeight: '800' },
   disabled: { opacity: 0.55 },
-  permitPhoto: { width: PHOTO_W, height: PHOTO_W * 0.55, borderRadius: 14, marginTop: 12, backgroundColor: '#f1f5f9' },
-  photoHint: { marginTop: 4, fontSize: 11, fontWeight: '700', textAlign: 'center' },
-  needPhoto: { marginTop: 10, fontWeight: '800' },
+  // Preview
   previewBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.92)', alignItems: 'center', justifyContent: 'center' },
   previewImage: { width: SCREEN_W, height: SCREEN_W * 1.3 },
 });

@@ -336,6 +336,11 @@ export default function PermitMonitor() {
                   </div>
 
                   <div className="rounded-xl bg-white/70 px-3 py-2">
+                    <div className="flex items-center gap-2 text-[11px] text-slate-500"><Upload size={13} />上传人</div>
+                    <div className="mt-1 text-sm font-medium text-slate-900">{permit.applicant?.real_name || permit.applicant?.username || "未知"}</div>
+                  </div>
+
+                  <div className="rounded-xl bg-white/70 px-3 py-2">
                     <div className="text-[11px] text-slate-500">描述</div>
                     <div className="mt-1 line-clamp-2 text-xs leading-5 text-slate-700">{permit.description || "暂无补充说明"}</div>
                   </div>
