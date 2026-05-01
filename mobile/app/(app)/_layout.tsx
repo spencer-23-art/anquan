@@ -1,40 +1,283 @@
-import { Stack, useRouter } from 'expo-router';
-import { TouchableOpacity, Text } from 'react-native';
-import { LogOut } from 'lucide-react-native';
+import { useState, useCallback } from 'react';
+import { Slot, useRouter, usePathname } from 'expo-router';
+import {
+  Animated,
+  Dimensions,
+  Platform,
+  Pressable,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import {
+  CalendarDays,
+  ClipboardCheck,
+  FileCheck,
+  FileText,
+  LogOut,
+  Menu,
+  Settings,
+  ShieldCheck,
+  X,
+} from 'lucide-react-native';
 import { useAuthStore } from '../../src/stores/auth';
 import { useAppTheme } from '../../src/hooks/useAppTheme';
 
+const SIDEBAR_W = 260;
+
+const NAV_LINKS = [
+  { path: '/(app)', icon: ClipboardCheck, label: '任务执行' },
+  { path: '/(app)/permits', icon: FileCheck, label: '作业许可' },
+  { path: '/(app)/fines', icon: FileText, label: '在线罚单' },
+  { path: '/(app)/safety-log', icon: CalendarDays, label: '安全日志' },
+  { path: '/(app)/settings', icon: Settings, label: '设置' },
+];
+
+function isActive(pathname: string, linkPath: string) {
+  if (linkPath === '/(app)') {
+    return pathname === '/(app)' || pathname === '/(app)/index';
+  }
+  return pathname.startsWith(linkPath);
+}
+
+function getTitle(pathname: string) {
+  if (pathname.startsWith('/(app)/task/')) return '风险排查';
+  const link = NAV_LINKS.find((l) => isActive(pathname, l.path));
+  return link?.label || '安全巡检';
+}
+
 export default function AppLayout() {
   const router = useRouter();
+  const pathname = usePathname();
   const logout = useAuthStore((state) => state.logout);
+  const user = useAuthStore((state) => state.user);
   const { colors } = useAppTheme();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const handleLogout = async () => {
     await logout();
     router.replace('/(auth)/login');
   };
 
+  const navigate = useCallback(
+    (path: string) => {
+      setSidebarOpen(false);
+      router.push(path as any);
+    },
+    [router]
+  );
+
+  const currentTitle = getTitle(pathname);
+
   return (
-    <Stack
-      screenOptions={{
-        headerStyle: { backgroundColor: colors.card },
-        headerTintColor: colors.text,
-        headerTitleStyle: { fontWeight: '800' },
-        headerShadowVisible: false,
-        headerRight: () => (
-          <TouchableOpacity onPress={handleLogout} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-            <LogOut size={16} color={colors.danger} />
-            <Text style={{ color: colors.danger, fontWeight: '700' }}>退出</Text>
+    <View style={[styles.root, { backgroundColor: colors.bg }]}>
+      {/* ===== 顶部 Header（与 web 端 mobile header 一致） ===== */}
+      <SafeAreaView style={{ backgroundColor: colors.card }}>
+        <View style={[styles.header, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
+          <TouchableOpacity
+            style={[styles.menuBtn, { borderColor: colors.border }]}
+            onPress={() => setSidebarOpen(true)}
+          >
+            <Menu size={18} color={colors.text} />
           </TouchableOpacity>
-        ),
-      }}
-    >
-      <Stack.Screen name="index" options={{ title: '客户端' }} />
-      <Stack.Screen name="task/[id]" options={{ title: '风险排查' }} />
-      <Stack.Screen name="permits" options={{ title: '作业许可' }} />
-      <Stack.Screen name="safety-log" options={{ title: '安全日志' }} />
-      <Stack.Screen name="fines" options={{ title: '在线罚单' }} />
-      <Stack.Screen name="settings" options={{ title: '设置' }} />
-    </Stack>
+          <View style={styles.headerCenter}>
+            <Text style={[styles.headerSub, { color: colors.subtext }]}>安全巡检管理系统</Text>
+            <Text style={[styles.headerTitle, { color: colors.text }]} numberOfLines={1}>
+              {currentTitle}
+            </Text>
+          </View>
+        </View>
+      </SafeAreaView>
+
+      {/* ===== 主内容区 ===== */}
+      <View style={styles.content}>
+        <Slot />
+      </View>
+
+      {/* ===== 侧边栏遮罩 + 抽屉 ===== */}
+      {sidebarOpen && (
+        <View style={StyleSheet.absoluteFill}>
+          {/* 半透明遮罩 */}
+          <Pressable style={styles.overlay} onPress={() => setSidebarOpen(false)} />
+
+          {/* 侧边栏 */}
+          <SafeAreaView style={[styles.sidebar, { backgroundColor: colors.card, borderRightColor: colors.border }]}>
+            {/* 关闭按钮 */}
+            <View style={styles.sidebarClose}>
+              <TouchableOpacity
+                style={[styles.closeBtn, { borderColor: colors.border }]}
+                onPress={() => setSidebarOpen(false)}
+              >
+                <X size={18} color={colors.subtext} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Logo 区 */}
+            <View style={[styles.logoArea, { borderBottomColor: colors.border }]}>
+              <ShieldCheck size={30} color={colors.primary} />
+              <View>
+                <Text style={[styles.logoTitle, { color: colors.text }]}>安全巡检</Text>
+                <Text style={[styles.logoSub, { color: colors.subtext }]}>SafeInspect</Text>
+              </View>
+            </View>
+
+            {/* 导航列表 */}
+            <View style={styles.navList}>
+              {NAV_LINKS.map((link) => {
+                const active = isActive(pathname, link.path);
+                const IconComp = link.icon;
+                return (
+                  <TouchableOpacity
+                    key={link.path}
+                    style={[
+                      styles.navItem,
+                      active && { backgroundColor: colors.primary },
+                    ]}
+                    onPress={() => navigate(link.path)}
+                    activeOpacity={0.7}
+                  >
+                    <IconComp size={20} color={active ? '#fff' : colors.subtext} />
+                    <Text
+                      style={[
+                        styles.navLabel,
+                        { color: active ? '#fff' : colors.subtext },
+                      ]}
+                    >
+                      {link.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* 用户信息 + 退出 */}
+            <View style={[styles.userArea, { borderTopColor: colors.border }]}>
+              <View style={styles.userRow}>
+                <View style={[styles.avatar, { backgroundColor: colors.primarySoft }]}>
+                  <Text style={[styles.avatarText, { color: colors.primary }]}>
+                    {(user?.username || '安')[0]}
+                  </Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.userName, { color: colors.text }]} numberOfLines={1}>
+                    {user?.real_name || user?.username || '安全员'}
+                  </Text>
+                  <Text style={[styles.userRole, { color: colors.subtext }]}>
+                    {user?.role === 'admin' ? '管理员' : '安全员'}
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+                <LogOut size={20} color={colors.danger} />
+                <Text style={[styles.logoutText, { color: colors.danger }]}>退出登录</Text>
+              </TouchableOpacity>
+            </View>
+          </SafeAreaView>
+        </View>
+      )}
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+  // Header
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  menuBtn: {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 9,
+  },
+  headerCenter: { flex: 1 },
+  headerSub: { fontSize: 11 },
+  headerTitle: { fontSize: 15, fontWeight: '800' },
+  // Content
+  content: { flex: 1, overflow: 'hidden' },
+  // Overlay
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(15,23,42,0.35)',
+  },
+  // Sidebar
+  sidebar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    bottom: 0,
+    width: SIDEBAR_W,
+    borderRightWidth: 1,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOpacity: 0.18,
+        shadowRadius: 16,
+        shadowOffset: { width: 4, height: 0 },
+      },
+      android: { elevation: 16 },
+      default: {},
+    }),
+  },
+  sidebarClose: {
+    alignItems: 'flex-end',
+    paddingHorizontal: 12,
+    paddingTop: 12,
+  },
+  closeBtn: {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 8,
+  },
+  // Logo
+  logoArea: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+    borderBottomWidth: 1,
+  },
+  logoTitle: { fontSize: 18, fontWeight: '900', letterSpacing: -0.3 },
+  logoSub: { fontSize: 11 },
+  // Nav
+  navList: { flex: 1, paddingHorizontal: 12, paddingTop: 12, gap: 6 },
+  navItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    borderRadius: 14,
+  },
+  navLabel: { fontSize: 14, fontWeight: '700' },
+  // User
+  userArea: { borderTopWidth: 1, paddingHorizontal: 16, paddingVertical: 16 },
+  userRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 },
+  avatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: { fontSize: 16, fontWeight: '900' },
+  userName: { fontSize: 14, fontWeight: '700' },
+  userRole: { fontSize: 11 },
+  logoutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+  },
+  logoutText: { fontSize: 14, fontWeight: '700' },
+});

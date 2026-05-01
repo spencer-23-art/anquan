@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { CalendarDays, ClipboardCheck, FileCheck, FileText, Settings, ShieldCheck } from 'lucide-react-native';
+import { ShieldCheck } from 'lucide-react-native';
 import api from '../../src/services/api';
 import { useAuthStore } from '../../src/stores/auth';
 import { useAppTheme } from '../../src/hooks/useAppTheme';
@@ -88,6 +88,7 @@ export default function ClientHomeScreen() {
 
   return (
     <View style={[styles.page, { backgroundColor: colors.bg }]}>
+      {/* 欢迎区 */}
       <View style={[styles.hero, { backgroundColor: colors.card, borderColor: colors.border }]}>
         <View style={[styles.heroIcon, { backgroundColor: colors.primarySoft }]}>
           <ShieldCheck color={colors.primary} size={28} />
@@ -96,29 +97,6 @@ export default function ClientHomeScreen() {
           <Text style={[styles.hello, { color: colors.text }]}>安全员工作台</Text>
           <Text style={[styles.sub, { color: colors.subtext }]}>{user?.real_name || user?.username || '安全员'}，你有 {pendingCount} 项待排查任务</Text>
         </View>
-      </View>
-
-      <View style={styles.navGrid}>
-        <TouchableOpacity style={[styles.navCard, { backgroundColor: colors.card, borderColor: colors.border }]} onPress={() => router.push('/(app)')}>
-          <ClipboardCheck color={colors.primary} size={22} />
-          <Text style={[styles.navText, { color: colors.text }]}>安全任务</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.navCard, { backgroundColor: colors.card, borderColor: colors.border }]} onPress={() => router.push('/(app)/permits')}>
-          <FileCheck color={colors.primary} size={22} />
-          <Text style={[styles.navText, { color: colors.text }]}>作业许可</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.navCard, { backgroundColor: colors.card, borderColor: colors.border }]} onPress={() => router.push('/(app)/fines')}>
-          <FileText color={colors.primary} size={22} />
-          <Text style={[styles.navText, { color: colors.text }]}>在线罚单</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.navCard, { backgroundColor: colors.card, borderColor: colors.border }]} onPress={() => router.push('/(app)/safety-log' as any)}>
-          <CalendarDays color={colors.primary} size={22} />
-          <Text style={[styles.navText, { color: colors.text }]}>安全日志</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.navCard, { backgroundColor: colors.card, borderColor: colors.border }]} onPress={() => router.push('/(app)/settings')}>
-          <Settings color={colors.primary} size={22} />
-          <Text style={[styles.navText, { color: colors.text }]}>设置</Text>
-        </TouchableOpacity>
       </View>
 
       <Text style={[styles.sectionTitle, { color: colors.text }]}>分发给我的安全任务</Text>
@@ -145,9 +123,6 @@ const styles = StyleSheet.create({
   heroIcon: { width: 54, height: 54, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   hello: { fontSize: 22, fontWeight: '900' },
   sub: { marginTop: 5, fontSize: 13, lineHeight: 20 },
-  navGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 },
-  navCard: { width: '48%', borderWidth: 1, borderRadius: 18, padding: 14, gap: 8 },
-  navText: { fontWeight: '800' },
   sectionTitle: { fontSize: 18, fontWeight: '900', marginBottom: 10 },
   loader: { padding: 30 },
   taskCard: { borderWidth: 1, borderRadius: 20, padding: 16, marginBottom: 12 },

@@ -6,7 +6,7 @@ import { Camera, RefreshCcw, Upload } from 'lucide-react-native';
 import api from '../../src/services/api';
 import { useAuthStore } from '../../src/stores/auth';
 import { useAppTheme } from '../../src/hooks/useAppTheme';
-import { authenticatedApiUrl } from '../../src/services/api';
+import { protectedFileUrl } from '../../src/services/api';
 
 const PERMIT_LABELS: Record<string, string> = {
   hot_work_level1: '动火一级票',
@@ -157,9 +157,9 @@ export default function PermitsScreen() {
         <Text style={[styles.meta, { color: colors.subtext }]}>责任人：{item.responsible_person || '-'}</Text>
         <Text style={[styles.meta, { color: colors.subtext }]}>有效期：{item.start_time ? new Date(item.start_time).toLocaleString() : '-'} 至 {item.end_time ? new Date(item.end_time).toLocaleString() : '-'}</Text>
         {item.photo_url ? (
-          <TouchableOpacity onPress={() => setPreviewUrl(authenticatedApiUrl(item.photo_url))} activeOpacity={0.85}>
+          <TouchableOpacity onPress={() => setPreviewUrl(protectedFileUrl(item.photo_url))} activeOpacity={0.85}>
             <Image
-              source={{ uri: authenticatedApiUrl(item.photo_url) }}
+              source={{ uri: protectedFileUrl(item.photo_url) }}
               style={styles.permitPhoto}
               resizeMode="cover"
             />
