@@ -146,8 +146,31 @@ export default function PermitsScreen() {
     );
   }
 
+  const getRemainingInfo = (item: any) => {
+    if (!item.end_time || item.status === 'expired') return { text: '已过期', ms: -1 };
+    const remaining = new Date(item.end_time).getTime() - Date.now();
+    if (remaining <= 0) return { text: '已过期', ms: 0 };
+    const hours = remaining / (1000 * 60 * 60);
+    const days = hours / 24;
+    if (days >= 1) return { text: `剩余 ${Math.floor(days)} 天 ${Math.floor(hours % 24)} 小时`, ms: remaining };
+    if (hours >= 1) return { text: `剩余 ${Math.floor(hours)} 小时 ${Math.floor((remaining / (1000 * 60)) % 60)} 分钟`, ms: remaining };
+    return { text: `剩余 ${Math.floor(remaining / (1000 * 60))} 分钟`, ms: remaining };
+  };
+
+  const sortedPermits = [...permits].sort((a, b) => {
+    const ra = getRemainingInfo(a);
+    const rb = getRemainingInfo(b);
+    // expired goes to bottom
+    if (ra.ms <= 0 && rb.ms > 0) return 1;
+    if (rb.ms <= 0 && ra.ms > 0) return -1;
+    if (ra.ms <= 0 && rb.ms <= 0) return 0;
+    return ra.ms - rb.ms;
+  });
+
   const renderPermit = ({ item }: { item: any }) => {
     const canEdit = user?.role === 'admin' || item.applicant_id === user?.id;
+    const remaining = getRemainingInfo(item);
+    const isUrgent = remaining.ms > 0 && remaining.ms < 24 * 60 * 60 * 1000;
     return (
       <View style={[styles.card, { backgroundColor: colors.card, borderColor: item.status === 'warning' ? colors.amber : colors.border }]}>
         <View style={styles.rowBetween}>
@@ -156,6 +179,11 @@ export default function PermitsScreen() {
             {item.status === 'expired' ? '已过期' : item.status === 'warning' ? '即将到期' : '有效中'}
           </Text>
         </View>
+        {item.status !== 'expired' && (
+          <Text style={[styles.countdown, { color: isUrgent ? colors.danger : colors.amber }]}>
+            ⏱ {remaining.text}
+          </Text>
+        )}
         <Text style={[styles.meta, { color: colors.subtext }]}>区域：{item.area?.name || '-'}</Text>
         <Text style={[styles.meta, { color: colors.subtext }]}>上传人：{item.applicant?.real_name || item.applicant?.username || '-'}</Text>
         <Text style={[styles.meta, { color: colors.subtext }]}>责任人：{item.responsible_person || '-'}</Text>
@@ -194,7 +222,7 @@ export default function PermitsScreen() {
         <Camera color="#fff" size={18} /><Text style={styles.createText}>手动新增作业许可</Text>
       </TouchableOpacity>
       {loading ? <ActivityIndicator color={colors.primary} style={{ marginTop: 30 }} /> : (
-        <FlatList data={permits} keyExtractor={(item) => String(item.id)} renderItem={renderPermit} onRefresh={loadData} refreshing={loading} contentContainerStyle={{ paddingBottom: 30 }} />
+        <FlatList data={sortedPermits} keyExtractor={(item) => String(item.id)} renderItem={renderPermit} onRefresh={loadData} refreshing={loading} contentContainerStyle={{ paddingBottom: 30 }} />
       )}
 
       <Modal visible={showCreate} transparent animationType="slide" onRequestClose={() => setShowCreate(false)}>
@@ -265,6 +293,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 17, fontWeight: '900', flex: 1 },
   badge: { fontWeight: '900' },
   meta: { fontSize: 12, marginTop: 8, lineHeight: 18 },
+  countdown: { fontSize: 13, fontWeight: '900', marginTop: 6 },
   photoOk: { marginTop: 10, fontWeight: '800' },
   needPhoto: { marginTop: 10, fontWeight: '800' },
   readOnlyHint: { marginTop: 12, fontSize: 12, fontWeight: '800' },
