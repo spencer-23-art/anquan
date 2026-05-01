@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { ClipboardCheck, FileCheck, FileText, Settings, ShieldCheck } from 'lucide-react-native';
+import { CalendarDays, ClipboardCheck, FileCheck, FileText, Settings, ShieldCheck } from 'lucide-react-native';
 import api from '../../src/services/api';
 import { useAuthStore } from '../../src/stores/auth';
 import { useAppTheme } from '../../src/hooks/useAppTheme';
@@ -110,6 +110,10 @@ export default function ClientHomeScreen() {
         <TouchableOpacity style={[styles.navCard, { backgroundColor: colors.card, borderColor: colors.border }]} onPress={() => router.push('/(app)/fines')}>
           <FileText color={colors.primary} size={22} />
           <Text style={[styles.navText, { color: colors.text }]}>在线罚单</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.navCard, { backgroundColor: colors.card, borderColor: colors.border }]} onPress={() => router.push('/(app)/safety-log' as any)}>
+          <CalendarDays color={colors.primary} size={22} />
+          <Text style={[styles.navText, { color: colors.text }]}>安全日志</Text>
         </TouchableOpacity>
         <TouchableOpacity style={[styles.navCard, { backgroundColor: colors.card, borderColor: colors.border }]} onPress={() => router.push('/(app)/settings')}>
           <Settings color={colors.primary} size={22} />

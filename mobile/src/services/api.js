@@ -41,4 +41,10 @@ export function protectedFileUrl(path) {
   return `${root}/api/files/${filePath}?token=${encodeURIComponent(token || '')}`;
 }
 
+export function authenticatedApiUrl(path) {
+  const token = useAuthStore.getState().token;
+  const cleanPath = String(path || '').replace(/^\/+/, '');
+  return `${BASE_URL}${cleanPath}${cleanPath.includes('?') ? '&' : '?'}token=${encodeURIComponent(token || '')}`;
+}
+
 export default api;

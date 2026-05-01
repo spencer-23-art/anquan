@@ -32,6 +32,7 @@ export default function AppLayout() {
       <Stack.Screen name="index" options={{ title: '客户端' }} />
       <Stack.Screen name="task/[id]" options={{ title: '风险排查' }} />
       <Stack.Screen name="permits" options={{ title: '作业许可' }} />
+      <Stack.Screen name="safety-log" options={{ title: '安全日志' }} />
       <Stack.Screen name="fines" options={{ title: '在线罚单' }} />
       <Stack.Screen name="settings" options={{ title: '设置' }} />
     </Stack>

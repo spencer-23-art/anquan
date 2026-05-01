@@ -10,6 +10,7 @@ import FineTicketCenter from './pages/FineTicketCenter';
 import AreaManagement from './pages/AreaManagement';
 import UserApproval from './pages/UserApproval';
 import SystemSettings from './pages/SystemSettings';
+import SafetyLog from './pages/SafetyLog';
 import { useAuthStore } from './stores/auth';
 
 const ProtectedRoute = ({ children, adminOnly = false }) => {
@@ -54,6 +55,7 @@ function App() {
         } />
         <Route path="permits" element={<PermitMonitor />} />
         <Route path="fines" element={<FineTicketCenter />} />
+        <Route path="safety-logs" element={<SafetyLog />} />
         
         <Route path="areas" element={
           <ProtectedRoute adminOnly={true}>

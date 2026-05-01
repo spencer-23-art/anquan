@@ -14,6 +14,7 @@ from app.api.auth import router as auth_router
 from app.api.files import router as files_router
 from app.api.fines import router as fines_router
 from app.api.permits import router as permits_router
+from app.api.safety_logs import router as safety_logs_router
 from app.api.tasks import router as tasks_router
 from app.api.users import router as users_router
 from app.config import settings
@@ -215,6 +216,7 @@ app.include_router(users_router)
 app.include_router(areas_router)
 app.include_router(tasks_router)
 app.include_router(permits_router)
+app.include_router(safety_logs_router)
 app.include_router(ai_router)
 app.include_router(files_router)
 app.include_router(fines_router)

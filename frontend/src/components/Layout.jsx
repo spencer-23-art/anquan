@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   Bot,
+  CalendarDays,
   FileCheck,
   FileText,
   LayoutDashboard,
@@ -20,6 +21,7 @@ const links = [
   { to: "/ai-chat", icon: Bot, label: "AI 风险分析", roles: ["admin"] },
   { to: "/permits", icon: FileCheck, label: "作业许可", roles: ["admin", "inspector"] },
   { to: "/fines", icon: FileText, label: "在线罚单", roles: ["admin", "inspector"] },
+  { to: "/safety-logs", icon: CalendarDays, label: "安全日志", roles: ["admin", "inspector"] },
   { to: "/areas", icon: MapIcon, label: "区域管理", roles: ["admin"] },
   { to: "/approvals", icon: Users, label: "用户审核", roles: ["admin"] },
   { to: "/settings", icon: Settings, label: "系统设置", roles: ["admin"] },

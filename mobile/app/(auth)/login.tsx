@@ -54,15 +54,12 @@ export default function LoginScreen() {
           placeholderTextColor={colors.subtext}
           value={username}
           onChangeText={setUsername}
-          multiline
-          numberOfLines={1}
-          scrollEnabled={false}
           keyboardType="default"
           autoCapitalize="none"
           autoCorrect={false}
           autoComplete="off"
-          importantForAutofill="no"
           textContentType="none"
+          returnKeyType="next"
         />
 
         <Text style={[styles.label, { color: colors.text }]}>密码</Text>

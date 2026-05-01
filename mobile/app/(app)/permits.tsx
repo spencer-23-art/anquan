@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { Camera, RefreshCcw, Upload } from 'lucide-react-native';
 import api from '../../src/services/api';
 import { useAuthStore } from '../../src/stores/auth';
 import { useAppTheme } from '../../src/hooks/useAppTheme';
+import { authenticatedApiUrl } from '../../src/services/api';
 
 const PERMIT_LABELS: Record<string, string> = {
   hot_work_level1: '动火一级票',
@@ -39,6 +40,7 @@ export default function PermitsScreen() {
   const [cameraAction, setCameraAction] = useState<any>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ type: 'hot_work_level3', area_id: '', responsible_person: '', description: '' });
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const cameraRef = useRef<any>(null);
 
   const loadData = async () => {
@@ -154,7 +156,18 @@ export default function PermitsScreen() {
         <Text style={[styles.meta, { color: colors.subtext }]}>上传人：{item.applicant?.real_name || item.applicant?.username || '-'}</Text>
         <Text style={[styles.meta, { color: colors.subtext }]}>责任人：{item.responsible_person || '-'}</Text>
         <Text style={[styles.meta, { color: colors.subtext }]}>有效期：{item.start_time ? new Date(item.start_time).toLocaleString() : '-'} 至 {item.end_time ? new Date(item.end_time).toLocaleString() : '-'}</Text>
-        {item.photo_url ? <Text style={[styles.photoOk, { color: colors.primary }]}>已上传许可照片</Text> : <Text style={[styles.needPhoto, { color: colors.amber }]}>未上传许可照片</Text>}
+        {item.photo_url ? (
+          <TouchableOpacity onPress={() => setPreviewUrl(authenticatedApiUrl(item.photo_url))} activeOpacity={0.85}>
+            <Image
+              source={{ uri: authenticatedApiUrl(item.photo_url) }}
+              style={styles.permitPhoto}
+              resizeMode="cover"
+            />
+            <Text style={[styles.photoHint, { color: colors.primary }]}>点击查看大图</Text>
+          </TouchableOpacity>
+        ) : (
+          <Text style={[styles.needPhoto, { color: colors.amber }]}>未上传许可照片</Text>
+        )}
         {canEdit ? (
           <View style={styles.actionRow}>
             <TouchableOpacity style={[styles.actionBtn, { borderColor: colors.border }]} onPress={() => openCamera({ type: 'photo', permitId: item.id })}>
@@ -226,6 +239,15 @@ export default function PermitsScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* 照片全屏预览 */}
+      <Modal visible={!!previewUrl} transparent animationType="fade" onRequestClose={() => setPreviewUrl(null)}>
+        <TouchableOpacity style={styles.previewBackdrop} activeOpacity={1} onPress={() => setPreviewUrl(null)}>
+          {previewUrl ? (
+            <Image source={{ uri: previewUrl }} style={styles.previewImage} resizeMode="contain" />
+          ) : null}
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -263,4 +285,9 @@ const styles = StyleSheet.create({
   secondaryText: { fontWeight: '900' },
   close: { textAlign: 'center', padding: 12, fontWeight: '800' },
   disabled: { opacity: 0.55 },
+  permitPhoto: { width: '100%', height: 160, borderRadius: 14, marginTop: 12 },
+  photoHint: { marginTop: 4, fontSize: 11, fontWeight: '700', textAlign: 'center' },
+  needPhoto: { marginTop: 10, fontWeight: '800' },
+  previewBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.92)', alignItems: 'center', justifyContent: 'center' },
+  previewImage: { width: '100%', height: '80%' },
 });
