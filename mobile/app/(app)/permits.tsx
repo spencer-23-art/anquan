@@ -147,20 +147,39 @@ export default function PermitsScreen() {
   }
 
   const getRemainingInfo = (item: any) => {
-    if (!item.end_time || item.status === 'expired') return { text: '已过期', ms: -1 };
+    if (!item.end_time || item.status === 'expired') return { text: '已过期', ms: -1, pct: 0 };
     const remaining = new Date(item.end_time).getTime() - Date.now();
-    if (remaining <= 0) return { text: '已过期', ms: 0 };
+    if (remaining <= 0) return { text: '已过期', ms: 0, pct: 0 };
+    const totalMs = item.start_time ? new Date(item.end_time).getTime() - new Date(item.start_time).getTime() : 1;
+    const pct = (remaining / totalMs) * 100;
     const hours = remaining / (1000 * 60 * 60);
     const days = hours / 24;
-    if (days >= 1) return { text: `剩余 ${Math.floor(days)} 天 ${Math.floor(hours % 24)} 小时`, ms: remaining };
-    if (hours >= 1) return { text: `剩余 ${Math.floor(hours)} 小时 ${Math.floor((remaining / (1000 * 60)) % 60)} 分钟`, ms: remaining };
-    return { text: `剩余 ${Math.floor(remaining / (1000 * 60))} 分钟`, ms: remaining };
+    let text = '';
+    if (days >= 1) text = `剩余 ${Math.floor(days)} 天`;
+    else if (hours >= 1) text = `剩余 ${Math.floor(hours)} 小时`;
+    else text = `剩余 ${Math.floor(remaining / (1000 * 60))} 分钟`;
+    return { text, ms: remaining, pct };
   };
+
+  // 有效期 < 20% 时弹出提醒
+  useEffect(() => {
+    if (!permits.length) return;
+    const urgent = permits.filter((p) => {
+      if (p.status === 'expired') return false;
+      const info = getRemainingInfo(p);
+      return info.pct > 0 && info.pct < 20;
+    });
+    if (urgent.length > 0) {
+      Alert.alert(
+        '⚠️ 许可即将到期',
+        `你有 ${urgent.length} 张作业许可剩余有效期不足 20%，请及时续期！`,
+      );
+    }
+  }, [permits]);
 
   const sortedPermits = [...permits].sort((a, b) => {
     const ra = getRemainingInfo(a);
     const rb = getRemainingInfo(b);
-    // expired goes to bottom
     if (ra.ms <= 0 && rb.ms > 0) return 1;
     if (rb.ms <= 0 && ra.ms > 0) return -1;
     if (ra.ms <= 0 && rb.ms <= 0) return 0;
@@ -170,18 +189,19 @@ export default function PermitsScreen() {
   const renderPermit = ({ item }: { item: any }) => {
     const canEdit = user?.role === 'admin' || item.applicant_id === user?.id;
     const remaining = getRemainingInfo(item);
-    const isUrgent = remaining.ms > 0 && remaining.ms < 24 * 60 * 60 * 1000;
+    const isUrgent = remaining.pct > 0 && remaining.pct < 20;
+    const isNotExpired = item.status !== 'expired';
     return (
-      <View style={[styles.card, { backgroundColor: colors.card, borderColor: item.status === 'warning' ? colors.amber : colors.border }]}>
+      <View style={[styles.card, { backgroundColor: colors.card, borderColor: isUrgent ? colors.danger : item.status === 'warning' ? colors.amber : colors.border }]}>
         <View style={styles.rowBetween}>
           <Text style={[styles.title, { color: colors.text }]}>{PERMIT_LABELS[item.type] || item.type}</Text>
           <Text style={[styles.badge, { color: item.status === 'expired' ? colors.subtext : item.status === 'warning' ? colors.amber : colors.primary }]}>
             {item.status === 'expired' ? '已过期' : item.status === 'warning' ? '即将到期' : '有效中'}
           </Text>
         </View>
-        {item.status !== 'expired' && (
+        {isNotExpired && (
           <Text style={[styles.countdown, { color: isUrgent ? colors.danger : colors.amber }]}>
-            ⏱ {remaining.text}
+            ⏱ {remaining.text}{isUrgent ? '  ⚠️ 即将到期' : ''}
           </Text>
         )}
         <Text style={[styles.meta, { color: colors.subtext }]}>区域：{item.area?.name || '-'}</Text>
@@ -200,16 +220,23 @@ export default function PermitsScreen() {
         ) : (
           <Text style={[styles.needPhoto, { color: colors.amber }]}>未上传许可照片</Text>
         )}
-        {canEdit ? (
+        {canEdit && isNotExpired && (
+          <TouchableOpacity
+            style={[styles.renewButton, { backgroundColor: isUrgent ? colors.danger : colors.primary }]}
+            onPress={() => openCamera({ type: 'renew', permitId: item.id })}
+          >
+            <RefreshCcw size={16} color="#fff" />
+            <Text style={styles.renewText}>拍照续期</Text>
+          </TouchableOpacity>
+        )}
+        {canEdit && (
           <View style={styles.actionRow}>
             <TouchableOpacity style={[styles.actionBtn, { borderColor: colors.border }]} onPress={() => openCamera({ type: 'photo', permitId: item.id })}>
               <Upload size={16} color={colors.primary} /><Text style={[styles.actionText, { color: colors.text }]}>换照片</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.actionBtn, { borderColor: colors.border }]} onPress={() => openCamera({ type: 'renew', permitId: item.id })}>
-              <RefreshCcw size={16} color={colors.primary} /><Text style={[styles.actionText, { color: colors.text }]}>续票</Text>
-            </TouchableOpacity>
           </View>
-        ) : (
+        )}
+        {!canEdit && (
           <Text style={[styles.readOnlyHint, { color: colors.subtext }]}>仅查看：只能修改自己上传的作业许可</Text>
         )}
       </View>
@@ -297,7 +324,9 @@ const styles = StyleSheet.create({
   photoOk: { marginTop: 10, fontWeight: '800' },
   needPhoto: { marginTop: 10, fontWeight: '800' },
   readOnlyHint: { marginTop: 12, fontSize: 12, fontWeight: '800' },
-  actionRow: { flexDirection: 'row', gap: 10, marginTop: 14 },
+  renewButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 14, paddingVertical: 12, marginTop: 14 },
+  renewText: { color: '#fff', fontWeight: '900', fontSize: 14 },
+  actionRow: { flexDirection: 'row', gap: 10, marginTop: 10 },
   actionBtn: { borderWidth: 1, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 6 },
   actionText: { fontWeight: '800' },
   cameraOverlay: { flex: 1, justifyContent: 'flex-end', alignItems: 'center', paddingBottom: 44, backgroundColor: 'transparent' },
