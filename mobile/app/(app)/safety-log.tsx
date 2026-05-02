@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as Location from 'expo-location';
 import * as Sharing from 'expo-sharing';
 import { CalendarDays, FileText, Share2 } from 'lucide-react-native';
 import { authenticatedApiUrl } from '../../src/services/api';
@@ -26,6 +27,19 @@ export default function SafetyLogScreen() {
 
   const cleanDate = useMemo(() => dateText.trim(), [dateText]);
 
+  const getLocationQuery = async () => {
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== 'granted') return '';
+      const position = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      return `&lat=${encodeURIComponent(position.coords.latitude)}&lon=${encodeURIComponent(position.coords.longitude)}`;
+    } catch {
+      return '';
+    }
+  };
+
   const generateAndShare = async () => {
     if (!isValidDateText(cleanDate)) {
       Alert.alert('日期格式不正确', '请输入 YYYY-MM-DD 格式，例如 2026-05-01。');
@@ -33,7 +47,8 @@ export default function SafetyLogScreen() {
     }
     setLoading(true);
     try {
-      const url = authenticatedApiUrl(`safety-logs/generate?log_date=${encodeURIComponent(cleanDate)}`);
+      const locationQuery = await getLocationQuery();
+      const url = authenticatedApiUrl(`safety-logs/generate?log_date=${encodeURIComponent(cleanDate)}${locationQuery}`);
       const target = `${FileSystem.documentDirectory}施工安全日志-${cleanDate}.docx`;
       const result = await FileSystem.downloadAsync(url, target);
       if (result.status < 200 || result.status >= 300) {

@@ -3,6 +3,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from fastapi.responses import FileResponse
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
@@ -61,7 +62,14 @@ def can_access_upload(db: Session, user: User, upload_url: str) -> bool:
     task_query = (
         db.query(Task)
         .join(ChecklistItem, ChecklistItem.task_id == Task.id)
-        .filter(ChecklistItem.photo_url == upload_url)
+        .filter(
+            or_(
+                ChecklistItem.photo_url == upload_url,
+                ChecklistItem.photo_url.like(f"{upload_url},%"),
+                ChecklistItem.photo_url.like(f"%,{upload_url}"),
+                ChecklistItem.photo_url.like(f"%,{upload_url},%"),
+            )
+        )
     )
 
     if user.role == UserRole.ADMIN:

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Modal, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -31,6 +31,10 @@ function severityMeta(severity?: string) {
 function textOrFallback(value: unknown, fallback: string) {
   const text = String(value || '').trim();
   return text || fallback;
+}
+
+function statusValue(value: unknown) {
+  return String(value || '').toLowerCase();
 }
 
 async function getFileSize(uri: string) {
@@ -77,17 +81,32 @@ export default function ChecklistScreen() {
   const [uploading, setUploading] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const cameraRef = useRef<any>(null);
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollOffsetRef = useRef(0);
 
-  const loadTask = useCallback(async () => {
-    setLoading(true);
+  const loadTask = useCallback(async (options?: { silent?: boolean; restoreScroll?: boolean }) => {
+    if (!options?.silent) {
+      setLoading(true);
+    }
     try {
       const res = await api.get(`tasks/${id}`);
       setTask(res.data);
       setItems(res.data.checklist_items || []);
+      if (options?.restoreScroll) {
+        const targetOffset = scrollOffsetRef.current;
+        requestAnimationFrame(() => {
+          scrollRef.current?.scrollTo({ y: targetOffset, animated: false });
+        });
+        setTimeout(() => {
+          scrollRef.current?.scrollTo({ y: targetOffset, animated: false });
+        }, 80);
+      }
     } catch (err: any) {
       Alert.alert('加载失败', err.response?.data?.detail || '任务详情加载失败');
     } finally {
-      setLoading(false);
+      if (!options?.silent) {
+        setLoading(false);
+      }
     }
   }, [id]);
 
@@ -134,7 +153,7 @@ export default function ChecklistScreen() {
       }
       setCameraActive(false);
       setCameraTarget(null);
-      await loadTask();
+      await loadTask({ silent: true, restoreScroll: true });
     } catch (err: any) {
       Alert.alert('拍照上传失败', err.message || err.response?.data?.detail || '请检查相机权限和网络连接后重试');
     } finally {
@@ -172,13 +191,21 @@ export default function ChecklistScreen() {
     );
   }
 
-  const checkedCount = items.filter((item) => item.status === 'checked').length;
+  const checkedCount = items.filter((item) => statusValue(item.status) === 'checked').length;
   const requiredPermits = task?.required_permits || [];
   const completedPermitCount = requiredPermits.filter((permit: any) => permit.permit_id && permit.photo_url).length;
   const isAllChecked = items.length > 0 && checkedCount === items.length && completedPermitCount === requiredPermits.length;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView
+      ref={scrollRef}
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      scrollEventThrottle={16}
+      onScroll={(event) => {
+        scrollOffsetRef.current = event.nativeEvent.contentOffset.y;
+      }}
+    >
       <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
         <ChevronLeft size={18} color="#0f172a" />
         <Text style={styles.backText}>返回任务列表</Text>
@@ -192,7 +219,7 @@ export default function ChecklistScreen() {
         <Text style={styles.desc}>{textOrFallback(task?.description, '管理员下发的现场风险排查任务，请逐项拍照确认。')}</Text>
         <View style={styles.badgeRow}>
           <Text style={styles.areaBadge}>区域：{task?.area?.name || '-'}</Text>
-          <Text style={styles.statusBadge}>{task?.status === 'completed' ? '已完成' : `待完成 ${items.length - checkedCount} 项`}</Text>
+          <Text style={styles.statusBadge}>{statusValue(task?.status) === 'completed' ? '已完成' : `待完成 ${items.length - checkedCount} 项`}</Text>
         </View>
       </View>
 
@@ -223,7 +250,6 @@ export default function ChecklistScreen() {
 
       {items.map((item, idx) => {
         const severity = severityMeta(item.severity);
-        const photoUri = item.photo_url ? protectedFileUrl(item.photo_url) : '';
         return (
           <View key={item.id} style={styles.checkCard}>
             <View style={styles.checkHeader}>
@@ -255,7 +281,7 @@ export default function ChecklistScreen() {
             </View>
 
             <View style={styles.actionRow}>
-              {item.status === 'checked' ? (
+              {statusValue(item.status) === 'checked' ? (
                 <View style={{ flex: 1 }}>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
                     {(item.photo_url || '').split(',').filter(Boolean).map((url: string, index: number) => (
@@ -281,9 +307,9 @@ export default function ChecklistScreen() {
                 </TouchableOpacity>
               )}
               
-              <View style={[styles.checkStatus, item.status === 'checked' ? styles.checkedStatus : styles.pendingStatus]}>
-                <CheckCircle2 size={14} color={item.status === 'checked' ? '#059669' : '#94a3b8'} />
-                <Text style={[styles.checkStatusText, { color: item.status === 'checked' ? '#059669' : '#64748b' }]}>{item.status === 'checked' ? '已排查' : '待排查'}</Text>
+              <View style={[styles.checkStatus, statusValue(item.status) === 'checked' ? styles.checkedStatus : styles.pendingStatus]}>
+                <CheckCircle2 size={14} color={statusValue(item.status) === 'checked' ? '#059669' : '#94a3b8'} />
+                <Text style={[styles.checkStatusText, { color: statusValue(item.status) === 'checked' ? '#059669' : '#64748b' }]}>{statusValue(item.status) === 'checked' ? '已排查' : '待排查'}</Text>
               </View>
             </View>
           </View>
@@ -303,11 +329,12 @@ export default function ChecklistScreen() {
         <Text style={styles.submitBtnText}>确认提交任务归档</Text>
       </TouchableOpacity>
       
-      {previewUrl ? (
+      <Modal visible={!!previewUrl} transparent animationType="fade" onRequestClose={() => setPreviewUrl(null)}>
         <TouchableOpacity style={styles.previewContainer} onPress={() => setPreviewUrl(null)} activeOpacity={1}>
-            <Image source={{ uri: previewUrl }} style={styles.previewImage} resizeMode="contain" />
+          {previewUrl ? <Image source={{ uri: previewUrl }} style={styles.previewImage} resizeMode="contain" /> : null}
+          <Text style={styles.previewTip}>点击关闭</Text>
         </TouchableOpacity>
-      ) : null}
+      </Modal>
     </ScrollView>
   );
 }
@@ -378,6 +405,7 @@ const styles = StyleSheet.create({
   captureInner: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#fff' },
   cancelButton: { marginTop: 18, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 999, backgroundColor: 'rgba(15,23,42,0.72)' },
   cancelText: { color: '#fff', fontWeight: '900' },
-  previewContainer: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.9)', zIndex: 1000, justifyContent: 'center', alignItems: 'center' },
-  previewImage: { width: '100%', height: '100%' },
+  previewContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.94)', justifyContent: 'center', alignItems: 'center', padding: 12 },
+  previewImage: { width: '100%', height: '88%' },
+  previewTip: { color: '#fff', fontSize: 13, fontWeight: '800', marginTop: 12 },
 });

@@ -1,8 +1,9 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import { Slot, useRouter, usePathname } from 'expo-router';
 import {
   Animated,
-  Dimensions,
+  Easing,
+  PanResponder,
   Platform,
   Pressable,
   SafeAreaView,
@@ -55,6 +56,52 @@ export default function AppLayout() {
   const user = useAuthStore((state) => state.user);
   const { colors } = useAppTheme();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarVisible, setSidebarVisible] = useState(false);
+  const sidebarProgress = useRef(new Animated.Value(0)).current;
+
+  const openSidebar = useCallback(() => {
+    setSidebarVisible(true);
+    setSidebarOpen(true);
+    sidebarProgress.stopAnimation();
+    Animated.timing(sidebarProgress, {
+      toValue: 1,
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [sidebarProgress]);
+
+  const closeSidebar = useCallback(() => {
+    sidebarProgress.stopAnimation();
+    Animated.timing(sidebarProgress, {
+      toValue: 0,
+      duration: 180,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) {
+        setSidebarOpen(false);
+        setSidebarVisible(false);
+      }
+    });
+  }, [sidebarProgress]);
+
+  const swipeResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gesture) => {
+          const horizontalSwipe = Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.4;
+          if (!horizontalSwipe || Math.abs(gesture.dx) < 10) return false;
+          if (sidebarOpen) return gesture.dx < -10;
+          return gesture.x0 <= 34 && gesture.dx > 10;
+        },
+        onPanResponderRelease: (_, gesture) => {
+          if (!sidebarOpen && gesture.dx > 55) openSidebar();
+          if (sidebarOpen && gesture.dx < -55) closeSidebar();
+        },
+      }),
+    [closeSidebar, openSidebar, sidebarOpen]
+  );
 
   const handleLogout = async () => {
     await logout();
@@ -63,22 +110,26 @@ export default function AppLayout() {
 
   const navigate = useCallback(
     (path: string) => {
-      setSidebarOpen(false);
+      closeSidebar();
       router.push(path as any);
     },
-    [router]
+    [closeSidebar, router]
   );
 
   const currentTitle = getTitle(pathname);
+  const sidebarTranslateX = sidebarProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-SIDEBAR_W, 0],
+  });
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.bg }]}>
+    <View style={[styles.root, { backgroundColor: colors.bg }]} {...swipeResponder.panHandlers}>
       {/* ===== 顶部 Header（与 web 端 mobile header 一致） ===== */}
       <SafeAreaView style={{ backgroundColor: colors.card }}>
         <View style={[styles.header, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
           <TouchableOpacity
             style={[styles.menuBtn, { borderColor: colors.border }]}
-            onPress={() => setSidebarOpen(true)}
+            onPress={openSidebar}
           >
             <Menu size={18} color={colors.text} />
           </TouchableOpacity>
@@ -97,18 +148,30 @@ export default function AppLayout() {
       </View>
 
       {/* ===== 侧边栏遮罩 + 抽屉 ===== */}
-      {sidebarOpen && (
+      {sidebarVisible && (
         <View style={StyleSheet.absoluteFill}>
           {/* 半透明遮罩 */}
-          <Pressable style={styles.overlay} onPress={() => setSidebarOpen(false)} />
+          <Animated.View style={[styles.overlay, { opacity: sidebarProgress }]}>
+            <Pressable style={StyleSheet.absoluteFill} onPress={closeSidebar} />
+          </Animated.View>
 
           {/* 侧边栏 */}
-          <SafeAreaView style={[styles.sidebar, { backgroundColor: colors.card, borderRightColor: colors.border }]}>
+          <Animated.View
+            style={[
+              styles.sidebar,
+              {
+                backgroundColor: colors.card,
+                borderRightColor: colors.border,
+                transform: [{ translateX: sidebarTranslateX }],
+              },
+            ]}
+          >
+          <SafeAreaView style={styles.sidebarSafe}>
             {/* 关闭按钮 */}
             <View style={styles.sidebarClose}>
               <TouchableOpacity
                 style={[styles.closeBtn, { borderColor: colors.border }]}
-                onPress={() => setSidebarOpen(false)}
+                onPress={closeSidebar}
               >
                 <X size={18} color={colors.subtext} />
               </TouchableOpacity>
@@ -175,6 +238,7 @@ export default function AppLayout() {
               </TouchableOpacity>
             </View>
           </SafeAreaView>
+          </Animated.View>
         </View>
       )}
     </View>
@@ -226,6 +290,7 @@ const styles = StyleSheet.create({
       default: {},
     }),
   },
+  sidebarSafe: { flex: 1 },
   sidebarClose: {
     alignItems: 'flex-end',
     paddingHorizontal: 12,

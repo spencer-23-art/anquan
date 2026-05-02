@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CalendarDays, Download, FileText, Loader2 } from "lucide-react";
+import { CalendarDays, Download, FileText, Loader2, RotateCcw, Share2 } from "lucide-react";
 import api from "../lib/axios";
 
 function todayStr() {
@@ -12,7 +12,26 @@ export default function SafetyLog() {
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState("success");
 
-  const handleDownload = async () => {
+  const getCurrentPosition = async () => {
+    if (!navigator.geolocation) return {};
+    try {
+      const position = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 8000,
+          maximumAge: 10 * 60 * 1000,
+        });
+      });
+      return {
+        lat: position.coords.latitude,
+        lon: position.coords.longitude,
+      };
+    } catch {
+      return {};
+    }
+  };
+
+  const handleDownload = async (shareAfterDownload = false) => {
     if (!logDate) {
       setMessage("请选择日期");
       setMessageType("error");
@@ -21,19 +40,40 @@ export default function SafetyLog() {
     setLoading(true);
     setMessage("");
     try {
+      const locationParams = await getCurrentPosition();
       const response = await api.get("/safety-logs/generate", {
-        params: { log_date: logDate },
+        params: { log_date: logDate, ...locationParams },
         responseType: "blob",
       });
+      const fileName = `施工安全日志-${logDate}.docx`;
+      const file = new File([response.data], fileName, {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      });
+
+      if (shareAfterDownload && navigator.canShare?.({ files: [file] }) && navigator.share) {
+        await navigator.share({
+          title: "施工安全日志",
+          text: `施工安全日志 ${logDate}`,
+          files: [file],
+        });
+        setMessage(`施工安全日志 ${logDate} 已生成并调起分享。`);
+        setMessageType("success");
+        return;
+      }
+
       const blobUrl = URL.createObjectURL(response.data);
       const link = document.createElement("a");
       link.href = blobUrl;
-      link.download = `施工安全日志-${logDate}.docx`;
+      link.download = fileName;
       document.body.appendChild(link);
       link.click();
       link.remove();
       URL.revokeObjectURL(blobUrl);
-      setMessage(`施工安全日志 ${logDate} 已生成并下载。`);
+      setMessage(
+        shareAfterDownload
+          ? `当前浏览器不支持直接分享 Word 文件，已改为下载施工安全日志 ${logDate}。`
+          : `施工安全日志 ${logDate} 已生成并下载。`
+      );
       setMessageType("success");
     } catch (err) {
       const detail = err.response?.data
@@ -83,18 +123,40 @@ export default function SafetyLog() {
             </p>
           </div>
 
+          <div className="grid gap-3 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => setLogDate(todayStr())}
+              disabled={loading}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 px-5 py-3.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <RotateCcw className="h-4 w-4" />
+              恢复当天日期
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleDownload(false)}
+              disabled={loading || !logDate}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3.5 text-sm font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {loading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
+              {loading ? "正在生成..." : "生成并下载"}
+            </button>
+          </div>
+
           <button
             type="button"
-            onClick={handleDownload}
+            onClick={() => handleDownload(true)}
             disabled={loading || !logDate}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3.5 text-sm font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-5 py-3.5 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {loading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Download className="h-4 w-4" />
-            )}
-            {loading ? "正在生成..." : "生成并下载 Word 日志"}
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Share2 className="h-4 w-4" />}
+            {loading ? "正在生成..." : "生成并分享"}
           </button>
 
           {message ? (

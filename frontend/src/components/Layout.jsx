@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   Bot,
@@ -89,6 +89,8 @@ export default function Layout() {
   const location = useLocation();
   const { user, logout } = useAuthStore();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const touchStartX = useRef(null);
+  const touchStartY = useRef(null);
 
   const currentTitle = useMemo(
     () => links.find((item) => item.to === location.pathname)?.label || "安全巡检管理系统",
@@ -100,20 +102,55 @@ export default function Layout() {
     navigate("/login");
   };
 
+  const handleTouchStart = (event) => {
+    const touch = event.touches?.[0];
+    if (!touch) return;
+    touchStartX.current = touch.clientX;
+    touchStartY.current = touch.clientY;
+  };
+
+  const handleTouchEnd = (event) => {
+    const touch = event.changedTouches?.[0];
+    if (!touch || touchStartX.current == null || touchStartY.current == null) return;
+    const dx = touch.clientX - touchStartX.current;
+    const dy = touch.clientY - touchStartY.current;
+    const horizontalSwipe = Math.abs(dx) > Math.abs(dy) * 1.4;
+    const startedNearLeft = touchStartX.current <= 34;
+
+    if (horizontalSwipe && !mobileOpen && startedNearLeft && dx > 55) setMobileOpen(true);
+    if (horizontalSwipe && mobileOpen && dx < -55) setMobileOpen(false);
+
+    touchStartX.current = null;
+    touchStartY.current = null;
+  };
+
   return (
-    <div className="flex min-h-screen bg-background text-foreground">
+    <div
+      className="flex min-h-screen bg-background text-foreground"
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+    >
       <aside className="hidden w-56 border-r border-border bg-card xl:w-60 lg:flex lg:flex-col">
         <SidebarContent user={user} onLogout={handleLogout} />
       </aside>
 
-      {mobileOpen ? (
-        <div className="fixed inset-0 z-40 lg:hidden">
+      <div
+        className={`fixed inset-0 z-40 transition lg:hidden ${
+          mobileOpen ? "pointer-events-auto" : "pointer-events-none"
+        }`}
+      >
           <button
             type="button"
-            className="absolute inset-0 bg-slate-950/35"
+            className={`absolute inset-0 bg-slate-950/35 transition-opacity duration-200 ease-out ${
+              mobileOpen ? "opacity-100" : "opacity-0"
+            }`}
             onClick={() => setMobileOpen(false)}
           />
-          <aside className="absolute inset-y-0 left-0 z-50 flex w-[86vw] max-w-[320px] flex-col border-r border-border bg-white shadow-2xl">
+          <aside
+            className={`absolute inset-y-0 left-0 z-50 flex w-[86vw] max-w-[320px] transform flex-col border-r border-border bg-white shadow-2xl transition-transform duration-200 ease-out ${
+              mobileOpen ? "translate-x-0" : "-translate-x-full"
+            }`}
+          >
             <div className="flex items-center justify-end p-3">
               <button
                 type="button"
@@ -130,7 +167,6 @@ export default function Layout() {
             />
           </aside>
         </div>
-      ) : null}
 
       <main className="flex min-w-0 flex-1 flex-col bg-muted/30">
         <header className="sticky top-0 z-30 flex items-center justify-start gap-3 border-b border-border bg-white/92 px-4 py-3 backdrop-blur lg:hidden">

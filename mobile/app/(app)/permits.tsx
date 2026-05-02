@@ -145,22 +145,6 @@ export default function PermitsScreen() {
     }
   };
 
-  if (cameraAction) {
-    return (
-      <View style={{ flex: 1 }}>
-        <CameraView ref={cameraRef} style={{ flex: 1 }} facing="back">
-          <View style={styles.cameraOverlay}>
-            <Text style={styles.cameraText}>请现场拍摄许可照片</Text>
-            <TouchableOpacity style={[styles.capture, saving && styles.disabled]} onPress={uploadPhoto} disabled={saving}>
-              {saving ? <ActivityIndicator color="#0f172a" /> : <View style={styles.captureInner} />}
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setCameraAction(null)}><Text style={styles.cancel}>取消</Text></TouchableOpacity>
-          </View>
-        </CameraView>
-      </View>
-    );
-  }
-
   const getRemainingInfo = (item: any) => {
     if (!item.end_time || item.status === 'expired') return { text: '已过期', ms: -1, pct: 0 };
     const remaining = new Date(item.end_time).getTime() - Date.now();
@@ -191,6 +175,22 @@ export default function PermitsScreen() {
       );
     }
   }, [permits]);
+
+  if (cameraAction) {
+    return (
+      <View style={{ flex: 1 }}>
+        <CameraView ref={cameraRef} style={{ flex: 1 }} facing="back">
+          <View style={styles.cameraOverlay}>
+            <Text style={styles.cameraText}>请现场拍摄许可照片</Text>
+            <TouchableOpacity style={[styles.capture, saving && styles.disabled]} onPress={uploadPhoto} disabled={saving}>
+              {saving ? <ActivityIndicator color="#0f172a" /> : <View style={styles.captureInner} />}
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setCameraAction(null)}><Text style={styles.cancel}>取消</Text></TouchableOpacity>
+          </View>
+        </CameraView>
+      </View>
+    );
+  }
 
   const sortedPermits = [...permits].sort((a, b) => {
     const ra = getRemainingInfo(a);

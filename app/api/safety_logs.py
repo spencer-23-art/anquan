@@ -1,11 +1,14 @@
 from copy import deepcopy
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 import httpx
 from docx import Document
 from docx.enum.section import WD_ORIENT
+from docx.enum.table import WD_ROW_HEIGHT_RULE
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 from docx.shared import Cm, Pt
 from docx.table import Table
 from fastapi import APIRouter, Depends, Query
@@ -50,10 +53,11 @@ def text_value(value: object, fallback: str = "-") -> str:
     return text or fallback
 
 
-async def fetch_weather() -> str:
+async def fetch_weather(latitude: float | None = None, longitude: float | None = None) -> str:
+    location = f"{latitude},{longitude}" if latitude is not None and longitude is not None else "Chengdu"
     try:
         async with httpx.AsyncClient(timeout=5) as client:
-            response = await client.get("https://wttr.in/Chengdu?format=j1&lang=zh")
+            response = await client.get(f"https://wttr.in/{location}?format=j1&lang=zh")
             response.raise_for_status()
             data = response.json()
         current = (data.get("current_condition") or [{}])[0]
@@ -62,6 +66,20 @@ async def fetch_weather() -> str:
         return f"{desc or '多云'} {temp}℃" if temp else desc or "多云"
     except Exception:
         return "多云"
+
+
+def cleanup_old_safety_logs() -> None:
+    log_dir = Path(settings.UPLOAD_DIR) / "safety_logs"
+    if not log_dir.exists():
+        return
+    cutoff = datetime.now() - timedelta(days=30)
+    for path in log_dir.glob("*.docx"):
+        try:
+            modified_at = datetime.fromtimestamp(path.stat().st_mtime)
+            if modified_at < cutoff:
+                path.unlink(missing_ok=True)
+        except OSError:
+            continue
 
 
 def upload_path(upload_url: str | None) -> Path | None:
@@ -75,6 +93,10 @@ def upload_path(upload_url: str | None) -> Path | None:
     return path if path.exists() and path.is_file() else None
 
 
+def upload_urls(value: str | None) -> list[str]:
+    return [url.strip() for url in str(value or "").split(",") if url.strip()]
+
+
 def add_cell_text(cell, text: str, *, bold: bool = False, size: int = 10) -> None:
     cell.text = ""
     paragraph = cell.paragraphs[0]
@@ -84,17 +106,136 @@ def add_cell_text(cell, text: str, *, bold: bool = False, size: int = 10) -> Non
     run.font.size = Pt(size)
 
 
-def add_photo(cell, upload_url: str | None, width_cm: float = 4.2) -> None:
+def set_cell_width(cell, width_cm: float) -> None:
+    tc_pr = cell._tc.get_or_add_tcPr()
+    tc_w = tc_pr.first_child_found_in("w:tcW")
+    if tc_w is None:
+        tc_w = OxmlElement("w:tcW")
+        tc_pr.append(tc_w)
+    tc_w.set(qn("w:w"), str(int(width_cm * 567)))
+    tc_w.set(qn("w:type"), "dxa")
+
+
+def clear_cell(cell) -> None:
+    cell.text = ""
+
+
+def delete_table(table: Table) -> None:
+    table._element.getparent().remove(table._element)
+
+
+def set_solid_borders(table: Table) -> None:
+    tbl_pr = table._tbl.tblPr
+    borders = tbl_pr.first_child_found_in("w:tblBorders")
+    if borders is None:
+        borders = OxmlElement("w:tblBorders")
+        tbl_pr.append(borders)
+    for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        tag = f"w:{edge}"
+        element = borders.find(qn(tag))
+        if element is None:
+            element = OxmlElement(tag)
+            borders.append(element)
+        element.set(qn("w:val"), "single")
+        element.set(qn("w:sz"), "8")
+        element.set(qn("w:space"), "0")
+        element.set(qn("w:color"), "000000")
+
+
+def lock_row_heights(table: Table) -> None:
+    for row in table.rows:
+        if row.height:
+            row.height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
+
+
+def append_copied_table(document: Document, table_xml) -> Table:
+    document.add_page_break()
+    new_table_xml = deepcopy(table_xml)
+    document._body._element.append(new_table_xml)
+    return Table(new_table_xml, document._body)
+
+
+def add_photo(cell, upload_url: str | None, width_cm: float = 4.2, height_cm: float | None = None) -> None:
     image_path = upload_path(upload_url)
     if not image_path:
         return
-    paragraph = cell.add_paragraph()
+    paragraph = cell.paragraphs[0] if cell.paragraphs else cell.add_paragraph()
     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run = paragraph.add_run()
     try:
-        run.add_picture(str(image_path), width=Cm(width_cm))
+        if height_cm:
+            run.add_picture(str(image_path), width=Cm(width_cm), height=Cm(height_cm))
+        else:
+            run.add_picture(str(image_path), width=Cm(width_cm))
     except Exception:
         paragraph.add_run("[照片无法插入]")
+
+
+def add_photo_fit(cell, upload_url: str | None, max_width_cm: float, max_height_cm: float) -> None:
+    image_path = upload_path(upload_url)
+    if not image_path:
+        return
+    try:
+        from PIL import Image
+
+        with Image.open(image_path) as image:
+            width_px, height_px = image.size
+        if width_px <= 0 or height_px <= 0:
+            return
+        scale = min(max_width_cm / width_px, max_height_cm / height_px)
+        width_cm = width_px * scale
+        height_cm = height_px * scale
+        add_photo(cell, upload_url, width_cm=width_cm, height_cm=height_cm)
+    except Exception:
+        add_photo(cell, upload_url, width_cm=max_width_cm)
+
+
+def image_fit_size(upload_url: str, max_width_cm: float, max_height_cm: float) -> tuple[float, float] | None:
+    image_path = upload_path(upload_url)
+    if not image_path:
+        return None
+    try:
+        from PIL import Image
+
+        with Image.open(image_path) as image:
+            width_px, height_px = image.size
+        if width_px <= 0 or height_px <= 0:
+            return None
+        scale = min(max_width_cm / width_px, max_height_cm / height_px)
+        return width_px * scale, height_px * scale
+    except Exception:
+        return max_width_cm, max_height_cm
+
+
+def add_photos_fit(cell, value: str | None, *, max_width_cm: float, max_height_cm: float) -> None:
+    urls = upload_urls(value)
+    if not urls:
+        return
+    if len(urls) == 1:
+        add_photo_fit(cell, urls[0], max_width_cm=max_width_cm, max_height_cm=max_height_cm)
+        return
+
+    columns = 2
+    rows = (len(urls) + 1) // 2
+    photo_width = (max_width_cm - 0.3) / columns
+    photo_height = (max_height_cm - 0.2) / max(rows, 1)
+    paragraph = cell.paragraphs[0] if cell.paragraphs else cell.add_paragraph()
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    for index, url in enumerate(urls):
+        image_path = upload_path(url)
+        if not image_path:
+            continue
+        size = image_fit_size(url, photo_width, photo_height)
+        if not size:
+            continue
+        run = paragraph.add_run()
+        try:
+            run.add_picture(str(image_path), width=Cm(size[0]), height=Cm(size[1]))
+            if index % columns == columns - 1 and index != len(urls) - 1:
+                paragraph = cell.add_paragraph()
+                paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        except Exception:
+            paragraph.add_run("[照片无法插入]")
 
 
 def permit_value(permit: WorkPermit) -> str:
@@ -136,11 +277,35 @@ def fill_template_fields(document: Document, values: dict[str, str]) -> None:
                     add_cell_text(cells[index + 1], values[label])
 
 
-def append_template_table(document: Document, table_xml) -> Table:
-    document.add_page_break()
-    new_table_xml = deepcopy(table_xml)
-    document._body._element.append(new_table_xml)
-    return Table(new_table_xml, document._body)
+def risk_text(index: int, task: Task, item) -> str:
+    return "\n".join(
+        [
+            f"隐患 {index}",
+            f"区域：{task.area.name if task.area else '-'}",
+            f"任务：{task.title}",
+            f"风险描述：{text_value(item.risk_description)}",
+            f"排查要点：{text_value(item.inspection_points)}",
+            f"排查时间：{item.checked_at.strftime('%Y-%m-%d %H:%M') if item.checked_at else '-'}",
+        ]
+    )
+
+
+def add_risk_to_cell(cell, *, index: int, task: Task, item, photo_width_cm: float) -> None:
+    add_cell_text(cell, risk_text(index, task, item), size=9)
+    add_photo(cell, item.photo_url, width_cm=photo_width_cm)
+
+
+def fill_continuation_table(table: Table, page_items) -> None:
+    set_solid_borders(table)
+    lock_row_heights(table)
+    for row_index, row in enumerate(table.rows):
+        text_cell, photo_cell = row.cells
+        clear_cell(text_cell)
+        clear_cell(photo_cell)
+        if row_index < len(page_items):
+            index, task, item = page_items[row_index]
+            add_cell_text(text_cell, risk_text(index, task, item), size=9)
+            add_photo_fit(photo_cell, item.photo_url, max_width_cm=7.2, max_height_cm=3.0)
 
 
 def fill_template_table(table: Table, *, values: dict[str, str], permits, page_items) -> None:
@@ -148,50 +313,48 @@ def fill_template_table(table: Table, *, values: dict[str, str], permits, page_i
         fill_template_fields(table._parent, values)
         return
 
+    set_solid_borders(table)
+    lock_row_heights(table)
     add_cell_text(table.rows[0].cells[1], values["施工单位"])
-    add_cell_text(table.rows[0].cells[3], values["项目名称"])
+    add_cell_text(table.rows[0].cells[2], values["项目名称"])
+    add_cell_text(table.rows[0].cells[-1], values["项目名称"])
     add_cell_text(table.rows[1].cells[1], values["日期"])
-    add_cell_text(table.rows[1].cells[3], values["星期"])
+    add_cell_text(table.rows[1].cells[2], values["星期"])
+    add_cell_text(table.rows[1].cells[-1], values["星期"])
     add_cell_text(table.rows[2].cells[1], values["天气"])
-    add_cell_text(table.rows[2].cells[3], values["安全员"])
+    add_cell_text(table.rows[2].cells[2], values["安全员"])
+    add_cell_text(table.rows[2].cells[-1], values["安全员"])
 
     permit_cell = table.rows[4].cells[0]
-    permit_cell.text = ""
+    permit_photo_cell = table.rows[4].cells[-1]
+    clear_cell(permit_cell)
+    clear_cell(permit_photo_cell)
     if permits:
         for index, permit in enumerate(permits, start=1):
-            paragraph = permit_cell.add_paragraph()
+            paragraph = permit_cell.paragraphs[0] if index == 1 and permit_cell.paragraphs else permit_cell.add_paragraph()
             run = paragraph.add_run(
-                f"{index}. {permit_label(permit)}  区域：{permit.area.name if permit.area else '-'}  责任人：{permit.responsible_person}"
+                f"{index}. 作业票据  区域：{permit.area.name if permit.area else '-'}  责任人：{permit.responsible_person}"
             )
             run.font.size = Pt(9)
-            add_photo(permit_cell, permit.photo_url, width_cm=3.2)
+            add_photos_fit(permit_photo_cell, permit.photo_url, max_width_cm=7.4, max_height_cm=3.0)
 
-    risk_rows = [table.rows[row_index].cells[0] for row_index in range(6, 9)]
-    for cell in risk_rows:
-        cell.text = ""
+    risk_row_template = deepcopy(table.rows[-1]._tr)
+    while len(table.rows) < 6 + max(len(page_items), 1):
+        table._tbl.append(deepcopy(risk_row_template))
+
+    for row in table.rows[6:]:
+        text_cell, photo_cell = row.cells[0], row.cells[-1]
+        clear_cell(text_cell)
+        clear_cell(photo_cell)
 
     if not page_items:
-        add_cell_text(risk_rows[0], "当日暂无隐患排查记录。")
+        add_cell_text(table.rows[6].cells[0], "当日暂无隐患排查记录。")
         return
 
-    for cell, (index, task, item) in zip(risk_rows, page_items):
-        add_cell_text(
-            cell,
-            "\n".join(
-                [
-                    f"隐患 {index}",
-                    f"区域：{task.area.name if task.area else '-'}",
-                    f"任务：{task.title}",
-                    f"风险描述：{text_value(item.risk_description)}",
-                    f"排查要点：{text_value(item.inspection_points)}",
-                    f"整改要求：{text_value(item.measure)}",
-                    f"排查时间：{item.checked_at.strftime('%Y-%m-%d %H:%M') if item.checked_at else '-'}",
-                    f"备注：{text_value(item.note)}",
-                ]
-            ),
-            size=9,
-        )
-        add_photo(cell, item.photo_url, width_cm=8.2)
+    for row, (index, task, item) in zip(table.rows[6:], page_items):
+        text_cell, photo_cell = row.cells[0], row.cells[-1]
+        add_cell_text(text_cell, risk_text(index, task, item), size=9)
+        add_photos_fit(photo_cell, item.photo_url, max_width_cm=7.4, max_height_cm=3.0)
 
 
 def collect_log_data(db: Session, current_user: User, log_date: date):
@@ -236,9 +399,11 @@ def build_docx(
     permits,
 ) -> None:
     inspector_name = current_user.real_name or current_user.username
+    area_names = sorted({task.area.name for task in tasks if task.area and task.area.name})
+    project_name = "、".join(area_names) if area_names else "风险区域"
     info_values = {
         "施工单位": "四川华庭",
-        "项目名称": "风险区域",
+        "项目名称": project_name,
         "巡查日期": log_date.strftime("%Y年%m月%d日"),
         "日期": log_date.strftime("%Y年%m月%d日"),
         "星期": WEEKDAY_LABELS[log_date.weekday()],
@@ -259,24 +424,17 @@ def build_docx(
     section.right_margin = Cm(1.4)
 
     if using_template:
-        template_table_xml = deepcopy(document.tables[0]._tbl) if document.tables else None
         indexed_items = [(index, task, item) for index, (task, item) in enumerate(items, start=1)]
-        pages = [indexed_items[index : index + 3] for index in range(0, len(indexed_items), 3)] or [[]]
-        for page_index, page_items in enumerate(pages):
-            if page_index == 0:
-                table = document.tables[0]
-            elif template_table_xml is not None:
-                table = append_template_table(document, template_table_xml)
-            else:
-                table = document.add_table(rows=9, cols=4)
-                table.style = "Table Grid"
-            fill_template_fields(document, info_values)
+        if document.tables:
             fill_template_table(
-                table,
+                document.tables[0],
                 values=info_values,
-                permits=permits if page_index == 0 else [],
-                page_items=page_items,
+                permits=permits,
+                page_items=indexed_items,
             )
+        if len(document.tables) > 1:
+            for table in list(document.tables[1:]):
+                delete_table(table)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         document.save(output_path)
         return
@@ -336,7 +494,6 @@ def build_docx(
                         f"任务：{task.title}",
                         f"风险描述：{text_value(item.risk_description)}",
                         f"排查要点：{text_value(item.inspection_points)}",
-                        f"整改要求：{text_value(item.measure)}",
                         f"排查时间：{item.checked_at.strftime('%Y-%m-%d %H:%M') if item.checked_at else '-'}",
                     ]
                 ),
@@ -352,12 +509,15 @@ def build_docx(
 @router.get("/generate")
 async def generate_safety_log(
     log_date: date | None = Query(default=None),
+    lat: float | None = Query(default=None),
+    lon: float | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_file_user),
 ):
     log_date = log_date or date.today()
+    cleanup_old_safety_logs()
     tasks, items, permits = collect_log_data(db, current_user, log_date)
-    weather = await fetch_weather()
+    weather = await fetch_weather(lat, lon)
     filename = f"safety-log-{current_user.id}-{log_date.isoformat()}.docx"
     output_path = Path(settings.UPLOAD_DIR) / "safety_logs" / filename
     build_docx(
