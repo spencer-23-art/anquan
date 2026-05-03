@@ -444,6 +444,7 @@ export default function TaskDashboard() {
                 {group.items.map((task) => {
                   const checklistItems = task.checklist_items || [];
                   const canOperate = task.assignee_id === user?.id || task.assignee?.id === user?.id;
+                  const showAdminCompactRisk = user?.role === "admin";
                   const checkedCount = checklistItems.filter(
                     (item) => statusValue(item.status) === "checked"
                   ).length;
@@ -571,7 +572,9 @@ export default function TaskDashboard() {
                               {checklistItems.map((item, index) => (
                                 <div
                                   key={index}
-                                  className="relative flex min-h-[420px] flex-col gap-3 rounded-xl border border-border bg-background p-3 shadow-sm"
+                                  className={`relative flex flex-col gap-3 rounded-xl border border-border bg-background p-3 shadow-sm ${
+                                    showAdminCompactRisk ? "min-h-[260px]" : "min-h-[420px]"
+                                  }`}
                                 >
                                   <div className="flex items-start justify-between gap-2">
                                     <span
@@ -599,26 +602,30 @@ export default function TaskDashboard() {
                                     </p>
                                   </div>
 
-                                  <GuidanceBlock title="如何排查">
-                                    {textOrFallback(
-                                      item.inspection_points,
-                                      "按后台下发的风险要求，对人员、设备、环境和防护措施逐项核查，确认无异常。"
-                                    )}
-                                  </GuidanceBlock>
+                                  {!showAdminCompactRisk ? (
+                                    <>
+                                      <GuidanceBlock title="如何排查">
+                                        {textOrFallback(
+                                          item.inspection_points,
+                                          "按后台下发的风险要求，对人员、设备、环境和防护措施逐项核查，确认无异常。"
+                                        )}
+                                      </GuidanceBlock>
 
-                                  <GuidanceBlock title="必须拍什么照片" tone="photo">
-                                    {textOrFallback(
-                                      item.photo_requirements,
-                                      "拍摄风险点全景、关键防护措施和整改后状态，确保照片能证明现场已经排查。"
-                                    )}
-                                  </GuidanceBlock>
+                                      <GuidanceBlock title="必须拍什么照片" tone="photo">
+                                        {textOrFallback(
+                                          item.photo_requirements,
+                                          "拍摄风险点全景、关键防护措施和整改后状态，确保照片能证明现场已经排查。"
+                                        )}
+                                      </GuidanceBlock>
 
-                                  <GuidanceBlock title="发现问题怎么处理" tone="measure">
-                                    {textOrFallback(
-                                      item.measure,
-                                      "发现问题立即停止相关作业，通知责任人整改，复查合格后再允许继续施工。"
-                                    )}
-                                  </GuidanceBlock>
+                                      <GuidanceBlock title="发现问题怎么处理" tone="measure">
+                                        {textOrFallback(
+                                          item.measure,
+                                          "发现问题立即停止相关作业，通知责任人整改，复查合格后再允许继续施工。"
+                                        )}
+                                      </GuidanceBlock>
+                                    </>
+                                  ) : null}
 
                                   {statusValue(item.status) === "checked" ? (
                                     <div className="mt-2 space-y-2">

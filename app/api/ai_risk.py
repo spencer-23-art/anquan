@@ -360,7 +360,7 @@ def create_task_from_ai(
         assignee = db.query(User).filter(User.id == data.assignee_id).first()
         if not assignee:
             raise HTTPException(status_code=404, detail="Assignee not found")
-        filtered_permits, _suppressed_permits = _filter_permits_by_area_validity(
+        filtered_permits, suppressed_permits = _filter_permits_by_area_validity(
             db,
             area_id=data.area_id,
             permits=data.permits or [],
@@ -403,6 +403,8 @@ def create_task_from_ai(
             "message": "Task created",
             "task_id": task.id,
             "permit_count": len(filtered_permits),
+            "suppressed_permit_count": len(suppressed_permits),
+            "suppressed_permits": suppressed_permits,
         }
     except ValueError as exc:
         db.rollback()

@@ -318,7 +318,7 @@ export default function AIChatTask() {
     setLoading(true);
     setPageMessage("");
     try {
-      await api.post("/ai/create-task", {
+      const { data } = await api.post("/ai/create-task", {
         session_id: nextDraft.session_id,
         title: nextDraft.title,
         items: nextDraft.items,
@@ -326,11 +326,21 @@ export default function AIChatTask() {
         area_id: Number(areaId),
         assignee_id: Number(createForm.assignee_id),
       });
+      const issuedPermitCount = data?.permit_count ?? nextDraft.permits.length;
+      const suppressedPermitCount = data?.suppressed_permit_count ?? 0;
       appendMessage({
         role: "assistant",
-        content: `已根据历史记录重新下发 ${nextDraft.items.length} 条隐患检查项，并生成 ${nextDraft.permits.length} 张需办理票证。`,
+        content: `已根据历史记录重新下发 ${nextDraft.items.length} 条隐患检查项，并生成 ${issuedPermitCount} 张需办理票证。${
+          suppressedPermitCount
+            ? ` 已和作业许可核对，${suppressedPermitCount} 张同类型票证剩余有效期超过 20%，本次不重复下发。`
+            : ""
+        }`,
       });
-      setPageMessage("历史记录已重新下发。现场检查时请按排查要点逐项核查并上传佐证照片。");
+      setPageMessage(
+        suppressedPermitCount
+          ? `历史记录已重新下发，已过滤 ${suppressedPermitCount} 张仍有效的作业许可，不需要重复办票。`
+          : "历史记录已重新下发。现场检查时请按排查要点逐项核查并上传佐证照片。"
+      );
       await loadHistory(areaId);
     } catch (err) {
       setPageMessage(extractErrorMessage(err, "历史记录重新下发失败，请检查区域和负责人后重试。"));
@@ -432,7 +442,7 @@ export default function AIChatTask() {
     setPageMessage("");
 
     try {
-      await api.post("/ai/create-task", {
+      const { data } = await api.post("/ai/create-task", {
         session_id: draftTask.session_id,
         title: draftTask.title,
         items: selectedRiskItems,
@@ -440,12 +450,22 @@ export default function AIChatTask() {
         area_id: Number(createForm.area_id),
         assignee_id: Number(createForm.assignee_id),
       });
+      const issuedPermitCount = data?.permit_count ?? selectedPermits.length;
+      const suppressedPermitCount = data?.suppressed_permit_count ?? 0;
 
       appendMessage({
         role: "assistant",
-        content: `任务创建成功，已下发 ${selectedRiskItems.length} 条隐患检查项，并生成 ${selectedPermits.length} 张必须办理票证。`,
+        content: `任务创建成功，已下发 ${selectedRiskItems.length} 条隐患检查项，并生成 ${issuedPermitCount} 张必须办理票证。${
+          suppressedPermitCount
+            ? ` 已自动过滤 ${suppressedPermitCount} 张剩余有效期超过 20% 的同区域同类型作业许可。`
+            : ""
+        }`,
       });
-      setPageMessage("任务已成功创建。现场检查时请按排查要点逐项核查，并按拍照要求上传佐证照片。");
+      setPageMessage(
+        suppressedPermitCount
+          ? `任务已成功创建。${suppressedPermitCount} 张票证仍在有效期内，本次不重复办票。`
+          : "任务已成功创建。现场检查时请按排查要点逐项核查，并按拍照要求上传佐证照片。"
+      );
       setDraftTask(null);
     } catch (err) {
       setPageMessage(extractErrorMessage(err, "任务创建失败，请补充信息后重试。"));

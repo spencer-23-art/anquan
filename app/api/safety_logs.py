@@ -5,7 +5,6 @@ from pathlib import Path
 import httpx
 from docx import Document
 from docx.enum.section import WD_ORIENT
-from docx.enum.table import WD_ROW_HEIGHT_RULE
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
@@ -142,10 +141,12 @@ def set_solid_borders(table: Table) -> None:
         element.set(qn("w:color"), "000000")
 
 
-def lock_row_heights(table: Table) -> None:
+def unlock_row_heights(table: Table) -> None:
     for row in table.rows:
-        if row.height:
-            row.height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
+        row.height = None
+        tr_pr = row._tr.get_or_add_trPr()
+        for height in list(tr_pr.findall(qn("w:trHeight"))):
+            tr_pr.remove(height)
 
 
 def append_copied_table(document: Document, table_xml) -> Table:
@@ -212,25 +213,20 @@ def add_photos_fit(cell, value: str | None, *, max_width_cm: float, max_height_c
     if not urls:
         return
     if len(urls) == 1:
-        add_photo_fit(cell, urls[0], max_width_cm=max_width_cm, max_height_cm=max_height_cm)
+        add_photo(cell, urls[0], width_cm=max_width_cm)
         return
 
     columns = 2
-    rows = (len(urls) + 1) // 2
     photo_width = (max_width_cm - 0.3) / columns
-    photo_height = (max_height_cm - 0.2) / max(rows, 1)
     paragraph = cell.paragraphs[0] if cell.paragraphs else cell.add_paragraph()
     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
     for index, url in enumerate(urls):
         image_path = upload_path(url)
         if not image_path:
             continue
-        size = image_fit_size(url, photo_width, photo_height)
-        if not size:
-            continue
         run = paragraph.add_run()
         try:
-            run.add_picture(str(image_path), width=Cm(size[0]), height=Cm(size[1]))
+            run.add_picture(str(image_path), width=Cm(photo_width))
             if index % columns == columns - 1 and index != len(urls) - 1:
                 paragraph = cell.add_paragraph()
                 paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -297,7 +293,7 @@ def add_risk_to_cell(cell, *, index: int, task: Task, item, photo_width_cm: floa
 
 def fill_continuation_table(table: Table, page_items) -> None:
     set_solid_borders(table)
-    lock_row_heights(table)
+    unlock_row_heights(table)
     for row_index, row in enumerate(table.rows):
         text_cell, photo_cell = row.cells
         clear_cell(text_cell)
@@ -314,7 +310,7 @@ def fill_template_table(table: Table, *, values: dict[str, str], permits, page_i
         return
 
     set_solid_borders(table)
-    lock_row_heights(table)
+    unlock_row_heights(table)
     add_cell_text(table.rows[0].cells[1], values["施工单位"])
     add_cell_text(table.rows[0].cells[2], values["项目名称"])
     add_cell_text(table.rows[0].cells[-1], values["项目名称"])
