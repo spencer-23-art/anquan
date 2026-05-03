@@ -10,7 +10,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt
 from docx.table import Table
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session, joinedload
 
@@ -18,7 +18,8 @@ from app.api.deps import get_db
 from app.api.files import get_file_user
 from app.config import settings
 from app.models.task import Task
-from app.models.user import User
+from app.models.safety_log_export import SafetyLogExport
+from app.models.user import User, UserRole
 from app.models.work_permit import WorkPermit
 
 router = APIRouter(prefix="/api/safety-logs", tags=["safety-logs"])
@@ -387,6 +388,27 @@ def fill_template_table(table: Table, *, values: dict[str, str], permits, page_i
         add_photos_fit(photo_cell, item.photo_url, max_width_cm=7.4, max_height_cm=3.0)
 
 
+def user_display_name(user: User | None) -> str:
+    if not user:
+        return "-"
+    return user.real_name or user.username or "-"
+
+
+def can_generate_for(current_user: User, target_user: User) -> bool:
+    return current_user.id == target_user.id or current_user.role == UserRole.ADMIN
+
+
+def resolve_log_subject(db: Session, current_user: User, target_user_id: int | None) -> User:
+    if target_user_id is None or target_user_id == current_user.id:
+        return current_user
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Only admins can generate logs for other users")
+    target_user = db.query(User).filter(User.id == target_user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Safety inspector not found")
+    return target_user
+
+
 def collect_log_data(db: Session, current_user: User, log_date: date):
     start, end = day_bounds(log_date)
     candidate_tasks = (
@@ -555,26 +577,77 @@ async def generate_safety_log(
     log_date: date | None = Query(default=None),
     lat: float | None = Query(default=None),
     lon: float | None = Query(default=None),
+    user_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_file_user),
 ):
     log_date = log_date or date.today()
     cleanup_old_safety_logs()
-    tasks, items, permits = collect_log_data(db, current_user, log_date)
+    subject_user = resolve_log_subject(db, current_user, user_id)
+    tasks, items, permits = collect_log_data(db, subject_user, log_date)
     weather = await fetch_weather(lat, lon)
-    filename = f"safety-log-{current_user.id}-{log_date.isoformat()}.docx"
+    filename = f"safety-log-{subject_user.id}-{log_date.isoformat()}.docx"
     output_path = Path(settings.UPLOAD_DIR) / "safety_logs" / filename
     build_docx(
         output_path=output_path,
         log_date=log_date,
         weather=weather,
-        current_user=current_user,
+        current_user=subject_user,
         tasks=tasks,
         items=items,
         permits=permits,
     )
+    relative_file_path = f"/uploads/safety_logs/{filename}"
+    db.add(
+        SafetyLogExport(
+            subject_user_id=subject_user.id,
+            exported_by_id=current_user.id,
+            log_date=log_date,
+            file_path=relative_file_path,
+        )
+    )
+    db.commit()
     return FileResponse(
         output_path,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        filename=f"施工安全日志-{log_date.isoformat()}.docx",
+        filename=f"施工安全日志-{user_display_name(subject_user)}-{log_date.isoformat()}.docx",
     )
+
+
+@router.get("/history")
+def list_safety_log_history(
+    limit: int = Query(default=50, ge=1, le=200),
+    user_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_file_user),
+):
+    query = (
+        db.query(SafetyLogExport)
+        .options(joinedload(SafetyLogExport.subject_user), joinedload(SafetyLogExport.exported_by))
+        .order_by(SafetyLogExport.created_at.desc())
+    )
+    if current_user.role != UserRole.ADMIN:
+        query = query.filter(SafetyLogExport.subject_user_id == current_user.id)
+    elif user_id:
+        query = query.filter(SafetyLogExport.subject_user_id == user_id)
+
+    rows = query.limit(limit).all()
+    return [
+        {
+            "id": row.id,
+            "log_date": row.log_date.isoformat() if row.log_date else "",
+            "file_path": row.file_path,
+            "created_at": row.created_at.isoformat() if row.created_at else "",
+            "subject_user": {
+                "id": row.subject_user.id if row.subject_user else None,
+                "username": row.subject_user.username if row.subject_user else "",
+                "real_name": user_display_name(row.subject_user),
+            },
+            "exported_by": {
+                "id": row.exported_by.id if row.exported_by else None,
+                "username": row.exported_by.username if row.exported_by else "",
+                "real_name": user_display_name(row.exported_by),
+            },
+        }
+        for row in rows
+    ]

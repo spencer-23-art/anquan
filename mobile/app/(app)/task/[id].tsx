@@ -7,20 +7,24 @@ import { Camera, CheckCircle2, ChevronLeft, ShieldAlert } from 'lucide-react-nat
 import api, { protectedFileUrl } from '../../../src/services/api';
 
 const MAX_PHOTO_BYTES = 200 * 1024;
-const PERMIT_LABELS: Record<string, string> = {
-  hot_work_level1: '动火一级票',
-  hot_work_level2: '动火二级票',
-  hot_work_level3: '普通动火票',
-  height_level1: '登高一级票',
-  height_level2: '登高二级票',
-  height_level3: '登高三级票',
-  height_special: '特级登高票',
-  confined_space: '受限空间票',
-  lifting: '吊装票',
-  excavation: '动土票',
-  electrical: '临电票',
-  other: '其他票证',
+const PERMIT_INFO: Record<string, { name: string; level: string }> = {
+  hot_work_level1: { name: '动火作业票', level: '一级' },
+  hot_work_level2: { name: '动火作业票', level: '二级' },
+  hot_work_level3: { name: '动火作业票', level: '普通' },
+  height_level1: { name: '高处作业票', level: '一级' },
+  height_level2: { name: '高处作业票', level: '二级' },
+  height_level3: { name: '高处作业票', level: '三级' },
+  height_special: { name: '高处作业票', level: '特级' },
+  confined_space: { name: '受限空间作业票', level: '专项' },
+  lifting: { name: '吊装作业票', level: '专项' },
+  excavation: { name: '动土作业票', level: '专项' },
+  electrical: { name: '临时用电作业票', level: '专项' },
+  other: { name: '作业票据', level: '专项' },
 };
+
+function permitInfo(type?: string) {
+  return PERMIT_INFO[String(type || '')] || { name: '作业票据', level: '专项' };
+}
 
 function severityMeta(severity?: string) {
   if (severity === 'high') return { label: '高风险', color: '#dc2626', bg: '#fee2e2' };
@@ -258,11 +262,17 @@ export default function ChecklistScreen() {
         <View style={styles.permitSection}>
           <Text style={styles.sectionTitle}>必须办理的作业许可</Text>
           <Text style={styles.sectionHint}>这些票证只有你现场拍照上传后，才会同步到后台作业许可。</Text>
-          {requiredPermits.map((permit: any, index: number) => (
+          {requiredPermits.map((permit: any, index: number) => {
+            const info = permitInfo(permit.type);
+            const permitText = String(permit.description || permit.reason || '').trim();
+            return (
             <View key={`${permit.type}-${index}`} style={styles.permitCard}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.permitTitle}>{PERMIT_LABELS[permit.type] || permit.type || '作业许可'}</Text>
-                <Text style={styles.permitReason}>{permit.description || permit.reason || 'AI 风险分析判定必须办理'}</Text>
+                <View style={styles.permitTitleRow}>
+                  <Text style={styles.permitTitle}>{info.name}</Text>
+                  <Text style={styles.permitLevel}>{info.level}</Text>
+                </View>
+                {permitText ? <Text style={styles.permitReason}>{permitText}</Text> : null}
                 {permit.responsible_person ? <Text style={styles.permitResponsible}>负责人：{permit.responsible_person}</Text> : null}
                 {permit.permit_id ? <Text style={styles.permitDone}>已同步到后台：#{permit.permit_id}</Text> : <Text style={styles.permitPending}>未拍照，后台暂不显示</Text>}
               </View>
@@ -271,7 +281,8 @@ export default function ChecklistScreen() {
                 <Text style={styles.permitPhotoText}>{permit.permit_id ? '重拍' : '拍照办理'}</Text>
               </TouchableOpacity>
             </View>
-          ))}
+            );
+          })}
         </View>
       ) : null}
 
@@ -411,7 +422,9 @@ const styles = StyleSheet.create({
   sectionTitle: { color: '#0f172a', fontSize: 17, fontWeight: '900' },
   sectionHint: { color: '#64748b', fontSize: 12, lineHeight: 18, marginTop: 4, marginBottom: 10 },
   permitCard: { borderRadius: 16, backgroundColor: '#f8fafc', padding: 12, marginTop: 8, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  permitTitleRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
   permitTitle: { color: '#0f172a', fontWeight: '900', fontSize: 14 },
+  permitLevel: { overflow: 'hidden', borderRadius: 999, backgroundColor: '#fef3c7', paddingHorizontal: 8, paddingVertical: 3, color: '#92400e', fontSize: 11, fontWeight: '900' },
   permitReason: { color: '#475569', marginTop: 4, fontSize: 12, lineHeight: 18 },
   permitResponsible: { color: '#0f766e', marginTop: 4, fontSize: 12, fontWeight: '900' },
   permitDone: { color: '#059669', marginTop: 6, fontSize: 12, fontWeight: '900' },

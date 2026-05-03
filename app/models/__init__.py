@@ -1,6 +1,7 @@
 from app.models.ai_analysis_history import AIAnalysisHistory
 from app.models.area import Area
 from app.models.fine_ticket import FineTicket, FineTicketType
+from app.models.safety_log_export import SafetyLogExport
 from app.models.system_config import SystemConfig
 from app.models.task import CheckItemStatus, ChecklistItem, Severity, Task, TaskStatus
 from app.models.user import User, UserRole, UserStatus
@@ -18,6 +19,7 @@ __all__ = [
     "AIAnalysisHistory",
     "FineTicket",
     "FineTicketType",
+    "SafetyLogExport",
     "SystemConfig",
     "Task",
     "TaskStatus",

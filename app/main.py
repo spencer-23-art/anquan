@@ -143,6 +143,27 @@ def ensure_runtime_schema():
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_work_permit_renewals_id ON work_permit_renewals (id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_work_permit_renewals_permit_id ON work_permit_renewals (permit_id)"))
 
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS safety_log_exports (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    subject_user_id INTEGER NOT NULL,
+                    exported_by_id INTEGER NOT NULL,
+                    log_date DATE NOT NULL,
+                    file_path VARCHAR(500) NOT NULL,
+                    created_at DATETIME NOT NULL,
+                    FOREIGN KEY(subject_user_id) REFERENCES users (id),
+                    FOREIGN KEY(exported_by_id) REFERENCES users (id)
+                )
+                """
+            )
+        )
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_safety_log_exports_id ON safety_log_exports (id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_safety_log_exports_subject_user_id ON safety_log_exports (subject_user_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_safety_log_exports_exported_by_id ON safety_log_exports (exported_by_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_safety_log_exports_log_date ON safety_log_exports (log_date)"))
+
 
 def rebuild_areas_table_if_unique():
     raw_conn = engine.raw_connection()
