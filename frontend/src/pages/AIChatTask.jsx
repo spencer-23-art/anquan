@@ -96,6 +96,17 @@ function permitReason(permit) {
   return permit?.reason?.trim() || `必须办理 ${permitLabel(permit?.type)}`;
 }
 
+function permitWorkDescription({ permit, title, areaName }) {
+  if (permit?.description?.trim()) {
+    return permit.description.trim();
+  }
+  const label = permitLabel(permit?.type)
+    .replace("作业票", "作业")
+    .replace("票证", "")
+    .replace("票", "");
+  return [areaName, title, label].filter(Boolean).join("");
+}
+
 function severityTone(severity) {
   switch (severity) {
     case "high":
@@ -276,11 +287,25 @@ export default function AIChatTask() {
     return draftTask.permits.filter((_, index) => selectedPermitIndexes.includes(index));
   }, [draftTask, selectedPermitIndexes]);
 
+  const enrichPermits = useCallback(
+    (permits, title) =>
+      (permits || []).map((permit) => ({
+        ...permit,
+        description: permitWorkDescription({
+          permit,
+          title,
+          areaName: selectedArea?.name,
+        }),
+      })),
+    [selectedArea?.name]
+  );
+
   const buildDraftFromHistory = (history) => {
     const payload = history?.payload || {};
+    const title = normalizeText(payload.summary || history.title, "AI 历史分析任务");
     return {
       session_id: history.session_id,
-      title: normalizeText(payload.summary || history.title, "AI 历史分析任务"),
+      title,
       items: (payload.items || []).map((item) => ({
         ...item,
         risk_description: normalizeText(item.risk_description, "待确认风险"),
@@ -288,7 +313,7 @@ export default function AIChatTask() {
         photo_requirements: normalizeText(item.photo_requirements, ""),
         measure: normalizeText(item.measure, ""),
       })),
-      permits: payload.permits || [],
+      permits: enrichPermits(payload.permits || [], title),
       suppressed_permits: payload.suppressed_permits || [],
     };
   };
@@ -300,7 +325,7 @@ export default function AIChatTask() {
     if (history.area_id) {
       setCreateForm((current) => ({ ...current, area_id: String(history.area_id) }));
     }
-    setPageMessage("已从历史记录恢复分析结果，可直接调整负责人后重新下发。");
+    setPageMessage("已从历史记录恢复分析结果，可直接重新下发。负责人由安全员在客户端拍作业票据时填写。");
   };
 
   const dispatchHistory = async (history) => {
@@ -314,7 +339,6 @@ export default function AIChatTask() {
       setPageMessage("这条历史记录没有可下发的隐患检查项。");
       return;
     }
-
     setLoading(true);
     setPageMessage("");
     try {
@@ -409,7 +433,7 @@ export default function AIChatTask() {
             photo_requirements: normalizeText(item.photo_requirements, ""),
             measure: normalizeText(item.measure, ""),
           })),
-          permits: uniquePermits,
+          permits: enrichPermits(uniquePermits, normalizeText(parsed.summary, "AI 生成作业任务")),
           suppressed_permits: parsed.suppressed_permits || [],
         });
         await loadHistory(createForm.area_id);
@@ -437,7 +461,6 @@ export default function AIChatTask() {
       setPageMessage("请先选择所属区域和负责人。");
       return;
     }
-
     setLoading(true);
     setPageMessage("");
 
@@ -735,22 +758,27 @@ export default function AIChatTask() {
                     {draftTask.permits.map((permit, index) => {
                       const selected = selectedPermitIndexes.includes(index);
                       return (
-                        <button
+                        <div
                           key={`${permit.type}-${index}`}
-                          type="button"
-                          onClick={() =>
-                            setSelectedPermitIndexes((current) =>
-                              current.includes(index)
-                                ? current.filter((item) => item !== index)
-                                : [...current, index].sort((a, b) => a - b)
-                            )
-                          }
                           className={`w-full rounded-3xl border px-4 py-4 text-left transition ${
                             selected ? "border-amber-300 bg-amber-50 shadow-sm" : "border-slate-200 bg-white"
                           }`}
                         >
                           <div className="flex items-start gap-3">
-                            <SelectDot selected={selected} tone="amber" />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSelectedPermitIndexes((current) =>
+                                  current.includes(index)
+                                    ? current.filter((item) => item !== index)
+                                    : [...current, index].sort((a, b) => a - b)
+                                )
+                              }
+                              className="shrink-0"
+                              title={selected ? "取消下发该票证" : "选择下发该票证"}
+                            >
+                              <SelectDot selected={selected} tone="amber" />
+                            </button>
                             <div className="min-w-0 flex-1">
                               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                                 <div className="font-medium text-slate-900">{permitLabel(permit.type)}</div>
@@ -766,12 +794,17 @@ export default function AIChatTask() {
                                 </div>
                               </div>
                               <div className="mt-2 text-xs leading-5 text-slate-700">{permitReason(permit)}</div>
+                              {permit.description ? (
+                                <div className="mt-3 rounded-2xl border border-amber-200 bg-white/90 px-3 py-2 text-xs leading-5 text-slate-700">
+                                  作业许可描述：{permit.description}
+                                </div>
+                              ) : null}
                               <div className="mt-3 rounded-2xl border border-amber-200 bg-white/90 px-3 py-2 text-xs leading-5 text-amber-900">
-                                选中的票证必须办理，现场必须上传办票照片和作业状态照片。
+                                票证类型和级别由 AI 风险识别确定，不可在下发时改变；负责人由安全员在客户端拍作业票据时填写。
                               </div>
                             </div>
                           </div>
-                        </button>
+                        </div>
                       );
                     })}
                   </div>

@@ -63,6 +63,8 @@ class AICreatePermitData(BaseModel):
     type: str
     end_time: Optional[str] = None
     photo_url: Optional[str] = None
+    reason: Optional[str] = None
+    description: Optional[str] = None
 
 
 class AICreateTaskRequest(BaseModel):

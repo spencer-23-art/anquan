@@ -39,6 +39,8 @@ PERMIT_LABELS = {
     "electrical": "临时用电作业票",
     "other": "其他作业票",
 }
+LANDSCAPE_PHOTO_SIZE_CM = (3.17, 2.38)
+PORTRAIT_PHOTO_SIZE_CM = (1.59, 3.00)
 
 
 def day_bounds(log_date: date) -> tuple[datetime, datetime]:
@@ -94,6 +96,20 @@ def upload_path(upload_url: str | None) -> Path | None:
 
 def upload_urls(value: str | None) -> list[str]:
     return [url.strip() for url in str(value or "").split(",") if url.strip()]
+
+
+def has_upload_in_day(value: str | None, start: datetime, end: datetime) -> bool:
+    for url in upload_urls(value):
+        path = upload_path(url)
+        if not path:
+            continue
+        try:
+            modified_at = datetime.fromtimestamp(path.stat().st_mtime)
+        except OSError:
+            continue
+        if start <= modified_at <= end:
+            return True
+    return False
 
 
 def add_cell_text(cell, text: str, *, bold: bool = False, size: int = 10) -> None:
@@ -161,7 +177,7 @@ def add_photo(cell, upload_url: str | None, width_cm: float = 4.2, height_cm: fl
     if not image_path:
         return
     paragraph = cell.paragraphs[0] if cell.paragraphs else cell.add_paragraph()
-    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
     run = paragraph.add_run()
     try:
         if height_cm:
@@ -208,28 +224,43 @@ def image_fit_size(upload_url: str, max_width_cm: float, max_height_cm: float) -
         return max_width_cm, max_height_cm
 
 
+def template_photo_constraint(upload_url: str) -> tuple[str, float]:
+    image_path = upload_path(upload_url)
+    if not image_path:
+        return "width", LANDSCAPE_PHOTO_SIZE_CM[0]
+    try:
+        from PIL import Image
+
+        with Image.open(image_path) as image:
+            width_px, height_px = image.size
+        if height_px > width_px:
+            return "height", PORTRAIT_PHOTO_SIZE_CM[1]
+    except Exception:
+        pass
+    return "width", LANDSCAPE_PHOTO_SIZE_CM[0]
+
+
 def add_photos_fit(cell, value: str | None, *, max_width_cm: float, max_height_cm: float) -> None:
     urls = upload_urls(value)
     if not urls:
         return
-    if len(urls) == 1:
-        add_photo(cell, urls[0], width_cm=max_width_cm)
-        return
 
-    columns = 2
-    photo_width = (max_width_cm - 0.3) / columns
     paragraph = cell.paragraphs[0] if cell.paragraphs else cell.add_paragraph()
-    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    paragraph.paragraph_format.space_before = Pt(0)
+    paragraph.paragraph_format.space_after = Pt(0)
+    paragraph.paragraph_format.line_spacing = 1
     for index, url in enumerate(urls):
         image_path = upload_path(url)
         if not image_path:
             continue
+        constraint, size_cm = template_photo_constraint(url)
         run = paragraph.add_run()
         try:
-            run.add_picture(str(image_path), width=Cm(photo_width))
-            if index % columns == columns - 1 and index != len(urls) - 1:
-                paragraph = cell.add_paragraph()
-                paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            if constraint == "height":
+                run.add_picture(str(image_path), height=Cm(size_cm))
+            else:
+                run.add_picture(str(image_path), width=Cm(size_cm))
         except Exception:
             paragraph.add_run("[照片无法插入]")
 
@@ -312,13 +343,13 @@ def fill_template_table(table: Table, *, values: dict[str, str], permits, page_i
     set_solid_borders(table)
     unlock_row_heights(table)
     add_cell_text(table.rows[0].cells[1], values["施工单位"])
-    add_cell_text(table.rows[0].cells[2], values["项目名称"])
+    add_cell_text(table.rows[0].cells[2], "区域", bold=True)
     add_cell_text(table.rows[0].cells[-1], values["项目名称"])
     add_cell_text(table.rows[1].cells[1], values["日期"])
-    add_cell_text(table.rows[1].cells[2], values["星期"])
+    add_cell_text(table.rows[1].cells[2], "星期", bold=True)
     add_cell_text(table.rows[1].cells[-1], values["星期"])
     add_cell_text(table.rows[2].cells[1], values["天气"])
-    add_cell_text(table.rows[2].cells[2], values["安全员"])
+    add_cell_text(table.rows[2].cells[2], "安全员", bold=True)
     add_cell_text(table.rows[2].cells[-1], values["安全员"])
 
     permit_cell = table.rows[4].cells[0]
@@ -329,14 +360,17 @@ def fill_template_table(table: Table, *, values: dict[str, str], permits, page_i
         for index, permit in enumerate(permits, start=1):
             paragraph = permit_cell.paragraphs[0] if index == 1 and permit_cell.paragraphs else permit_cell.add_paragraph()
             run = paragraph.add_run(
-                f"{index}. 作业票据  区域：{permit.area.name if permit.area else '-'}  责任人：{permit.responsible_person}"
+                f"{index}. {permit_label(permit)}  区域：{permit.area.name if permit.area else '-'}  负责人：{permit.responsible_person}"
             )
             run.font.size = Pt(9)
             add_photos_fit(permit_photo_cell, permit.photo_url, max_width_cm=7.4, max_height_cm=3.0)
 
-    risk_row_template = deepcopy(table.rows[-1]._tr)
-    while len(table.rows) < 6 + max(len(page_items), 1):
+    risk_row_template = deepcopy(table.rows[6]._tr if len(table.rows) > 6 else table.rows[-1]._tr)
+    target_row_count = 6 + max(len(page_items), 1)
+    while len(table.rows) < target_row_count:
         table._tbl.append(deepcopy(risk_row_template))
+    while len(table.rows) > target_row_count:
+        table._tbl.remove(table.rows[-1]._tr)
 
     for row in table.rows[6:]:
         text_cell, photo_cell = row.cells[0], row.cells[-1]
@@ -355,33 +389,47 @@ def fill_template_table(table: Table, *, values: dict[str, str], permits, page_i
 
 def collect_log_data(db: Session, current_user: User, log_date: date):
     start, end = day_bounds(log_date)
-    tasks = (
+    candidate_tasks = (
         db.query(Task)
         .options(joinedload(Task.area), joinedload(Task.assignee), joinedload(Task.checklist_items))
         .filter(Task.assignee_id == current_user.id)
-        .filter((Task.created_at <= end) & ((Task.completed_at.is_(None)) | (Task.completed_at >= start)))
+        .filter(Task.created_at <= end)
         .order_by(Task.created_at.desc())
         .all()
     )
 
     items = []
-    for task in tasks:
+    included_tasks: dict[int, Task] = {}
+    for task in candidate_tasks:
         for item in task.checklist_items or []:
             in_checked_day = item.checked_at and start <= item.checked_at <= end
             in_task_day = task.created_at and start <= task.created_at <= end
-            if in_checked_day or in_task_day:
+            in_photo_day = has_upload_in_day(item.photo_url, start, end)
+            if in_checked_day or in_task_day or in_photo_day:
                 items.append((task, item))
+                included_tasks[task.id] = task
 
-    permits = (
+    candidate_permits = (
         db.query(WorkPermit)
         .options(joinedload(WorkPermit.area), joinedload(WorkPermit.applicant))
         .filter(WorkPermit.applicant_id == current_user.id)
         .filter(WorkPermit.photo_url.isnot(None))
-        .filter(WorkPermit.created_at >= start, WorkPermit.created_at <= end)
         .order_by(WorkPermit.created_at.desc())
         .all()
     )
-    return tasks, items, permits
+    permits = [
+        permit
+        for permit in candidate_permits
+        if (permit.created_at and start <= permit.created_at <= end)
+        or has_upload_in_day(permit.photo_url, start, end)
+    ]
+    for permit in permits:
+        if permit.task_id:
+            task = next((task for task in candidate_tasks if task.id == permit.task_id), None)
+            if task:
+                included_tasks[task.id] = task
+
+    return list(included_tasks.values()), items, permits
 
 
 def build_docx(

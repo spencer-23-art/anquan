@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Modal, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -77,7 +77,9 @@ export default function ChecklistScreen() {
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [cameraActive, setCameraActive] = useState(false);
-  const [cameraTarget, setCameraTarget] = useState<{ kind: 'check' | 'permit' | 'add_photo'; id?: number; index?: number } | null>(null);
+  const [cameraTarget, setCameraTarget] = useState<{ kind: 'check' | 'permit' | 'add_photo'; id?: number; index?: number; responsible_person?: string; description?: string } | null>(null);
+  const [permitResponsibleModal, setPermitResponsibleModal] = useState<{ index: number; permit: any } | null>(null);
+  const [permitResponsibleName, setPermitResponsibleName] = useState('');
   const [uploading, setUploading] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const cameraRef = useRef<any>(null);
@@ -114,7 +116,7 @@ export default function ChecklistScreen() {
     loadTask();
   }, [loadTask]);
 
-  const openCamera = async (target: { kind: 'check' | 'permit' | 'add_photo'; id?: number; index?: number }) => {
+  const openCamera = async (target: { kind: 'check' | 'permit' | 'add_photo'; id?: number; index?: number; responsible_person?: string; description?: string }) => {
     let currentPermission = permission;
     if (!currentPermission?.granted) {
       currentPermission = await requestPermission();
@@ -125,6 +127,28 @@ export default function ChecklistScreen() {
     }
     setCameraTarget(target);
     setCameraActive(true);
+  };
+
+  const openPermitResponsible = (index: number, permit: any) => {
+    setPermitResponsibleModal({ index, permit });
+    setPermitResponsibleName(String(permit?.responsible_person || '').trim());
+  };
+
+  const confirmPermitResponsible = async () => {
+    if (!permitResponsibleModal) return;
+    const name = permitResponsibleName.trim();
+    if (!name) {
+      Alert.alert('请填写负责人', '作业票据拍照办理前，需要填写现场负责人。');
+      return;
+    }
+    const { index, permit } = permitResponsibleModal;
+    setPermitResponsibleModal(null);
+    await openCamera({
+      kind: 'permit',
+      index,
+      responsible_person: name,
+      description: permit?.description || permit?.reason || '',
+    });
   };
 
   const takePicture = async () => {
@@ -149,6 +173,8 @@ export default function ChecklistScreen() {
       } else if (cameraTarget.kind === 'add_photo') {
         await api.post(`tasks/${id}/items/${cameraTarget.id}/add-photo`, formData);
       } else {
+        formData.append('responsible_person', cameraTarget.responsible_person || '');
+        formData.append('description', cameraTarget.description || '');
         await api.post(`tasks/${id}/permits/${cameraTarget.index}/photo`, formData);
       }
       setCameraActive(false);
@@ -236,10 +262,11 @@ export default function ChecklistScreen() {
             <View key={`${permit.type}-${index}`} style={styles.permitCard}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.permitTitle}>{PERMIT_LABELS[permit.type] || permit.type || '作业许可'}</Text>
-                <Text style={styles.permitReason}>{permit.reason || 'AI 风险分析判定必须办理'}</Text>
+                <Text style={styles.permitReason}>{permit.description || permit.reason || 'AI 风险分析判定必须办理'}</Text>
+                {permit.responsible_person ? <Text style={styles.permitResponsible}>负责人：{permit.responsible_person}</Text> : null}
                 {permit.permit_id ? <Text style={styles.permitDone}>已同步到后台：#{permit.permit_id}</Text> : <Text style={styles.permitPending}>未拍照，后台暂不显示</Text>}
               </View>
-              <TouchableOpacity style={styles.permitPhotoBtn} onPress={() => openCamera({ kind: 'permit', index })}>
+              <TouchableOpacity style={styles.permitPhotoBtn} onPress={() => openPermitResponsible(index, permit)}>
                 <Camera size={18} color="#0f766e" />
                 <Text style={styles.permitPhotoText}>{permit.permit_id ? '重拍' : '拍照办理'}</Text>
               </TouchableOpacity>
@@ -335,6 +362,30 @@ export default function ChecklistScreen() {
           <Text style={styles.previewTip}>点击关闭</Text>
         </TouchableOpacity>
       </Modal>
+
+      <Modal visible={!!permitResponsibleModal} transparent animationType="fade" onRequestClose={() => setPermitResponsibleModal(null)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.responsibleDialog}>
+            <Text style={styles.responsibleTitle}>填写作业票据负责人</Text>
+            <Text style={styles.responsibleHint}>负责人可以是施工员或实际作业负责人，填写后再现场拍照办理。</Text>
+            <TextInput
+              style={styles.responsibleInput}
+              value={permitResponsibleName}
+              onChangeText={setPermitResponsibleName}
+              placeholder="请输入负责人姓名"
+              placeholderTextColor="#94a3b8"
+            />
+            <View style={styles.responsibleActions}>
+              <TouchableOpacity style={styles.responsibleCancel} onPress={() => setPermitResponsibleModal(null)}>
+                <Text style={styles.responsibleCancelText}>取消</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.responsibleConfirm} onPress={confirmPermitResponsible}>
+                <Text style={styles.responsibleConfirmText}>去拍照</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -362,6 +413,7 @@ const styles = StyleSheet.create({
   permitCard: { borderRadius: 16, backgroundColor: '#f8fafc', padding: 12, marginTop: 8, flexDirection: 'row', alignItems: 'center', gap: 10 },
   permitTitle: { color: '#0f172a', fontWeight: '900', fontSize: 14 },
   permitReason: { color: '#475569', marginTop: 4, fontSize: 12, lineHeight: 18 },
+  permitResponsible: { color: '#0f766e', marginTop: 4, fontSize: 12, fontWeight: '900' },
   permitDone: { color: '#059669', marginTop: 6, fontSize: 12, fontWeight: '900' },
   permitPending: { color: '#d97706', marginTop: 6, fontSize: 12, fontWeight: '900' },
   permitPhotoBtn: { borderRadius: 14, backgroundColor: '#ccfbf1', paddingHorizontal: 10, paddingVertical: 9, alignItems: 'center', gap: 4 },
@@ -408,4 +460,14 @@ const styles = StyleSheet.create({
   previewContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.94)', justifyContent: 'center', alignItems: 'center', padding: 12 },
   previewImage: { width: '100%', height: '88%' },
   previewTip: { color: '#fff', fontSize: 13, fontWeight: '800', marginTop: 12 },
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.55)', justifyContent: 'center', padding: 22 },
+  responsibleDialog: { borderRadius: 22, backgroundColor: '#ffffff', padding: 18 },
+  responsibleTitle: { color: '#0f172a', fontSize: 18, fontWeight: '900' },
+  responsibleHint: { color: '#64748b', fontSize: 13, lineHeight: 20, marginTop: 6 },
+  responsibleInput: { marginTop: 14, borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 11, color: '#0f172a', fontSize: 15, fontWeight: '700' },
+  responsibleActions: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  responsibleCancel: { flex: 1, borderRadius: 14, backgroundColor: '#f1f5f9', paddingVertical: 12, alignItems: 'center' },
+  responsibleCancelText: { color: '#475569', fontWeight: '900' },
+  responsibleConfirm: { flex: 1, borderRadius: 14, backgroundColor: '#0f766e', paddingVertical: 12, alignItems: 'center' },
+  responsibleConfirmText: { color: '#ffffff', fontWeight: '900' },
 });

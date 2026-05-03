@@ -278,6 +278,8 @@ async def upload_required_permit_photo(
     task_id: int,
     permit_index: int,
     photo: UploadFile = File(...),
+    responsible_person: str = Form(default=""),
+    description: str = Form(default=""),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -307,17 +309,31 @@ async def upload_required_permit_photo(
     photo_url = f"/uploads/permits/{filename}"
     existing_permit_id = permit_data.get("permit_id")
     permit = db.query(WorkPermit).filter(WorkPermit.id == existing_permit_id).first() if existing_permit_id else None
+    responsible_person = (
+        responsible_person.strip()
+        or str(permit_data.get("responsible_person") or "").strip()
+        or current_user.real_name
+        or current_user.username
+    )
+    permit_description = (
+        description.strip()
+        or str(permit_data.get("description") or "").strip()
+        or str(permit_data.get("reason") or "").strip()
+        or f"客户端任务 #{task.id} 拍照办理"
+    )
 
     if permit:
         permit.photo_url = photo_url
+        permit.responsible_person = responsible_person
+        permit.description = permit_description
     else:
         start_time = get_permit_start_time(permit_type)
         permit = WorkPermit(
             type=permit_type,
             area_id=task.area_id,
             applicant_id=current_user.id,
-            responsible_person=current_user.real_name or current_user.username,
-            description=f"客户端任务 #{task.id} 拍照办理",
+            responsible_person=responsible_person,
+            description=permit_description,
             photo_url=photo_url,
             start_time=start_time,
             end_time=start_time + timedelta(hours=PERMIT_DURATION_HOURS.get(permit_type, 168)),

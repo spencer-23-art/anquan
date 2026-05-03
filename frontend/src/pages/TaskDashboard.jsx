@@ -256,6 +256,8 @@ export default function TaskDashboard() {
   const [cameraTarget, setCameraTarget] = useState(null);
   const [cameraStream, setCameraStream] = useState(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [permitResponsibleTarget, setPermitResponsibleTarget] = useState(null);
+  const [permitResponsibleName, setPermitResponsibleName] = useState("");
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const captureInputRef = useRef(null);
@@ -362,6 +364,29 @@ export default function TaskDashboard() {
     }
   };
 
+  const beginPermitPhoto = (task, permit, index) => {
+    setPermitResponsibleTarget({ taskId: task.id, permit, index });
+    setPermitResponsibleName(String(permit?.responsible_person || "").trim());
+  };
+
+  const confirmPermitResponsible = () => {
+    const name = permitResponsibleName.trim();
+    if (!permitResponsibleTarget) return;
+    if (!name) {
+      alert("请先填写作业票据负责人。");
+      return;
+    }
+    const { taskId, permit, index } = permitResponsibleTarget;
+    setPermitResponsibleTarget(null);
+    openCamera({
+      kind: "permit",
+      taskId,
+      index,
+      responsible_person: name,
+      description: permit?.description || permit?.reason || "",
+    });
+  };
+
   const uploadPhotoBlob = async (blob) => {
     if (!cameraTarget) return;
     const formData = new FormData();
@@ -373,6 +398,8 @@ export default function TaskDashboard() {
     } else if (cameraTarget.kind === "add_photo") {
       await api.post(`/tasks/${cameraTarget.taskId}/items/${cameraTarget.id}/add-photo`, formData);
     } else {
+      formData.append("responsible_person", cameraTarget.responsible_person || "");
+      formData.append("description", cameraTarget.description || "");
       await api.post(`/tasks/${cameraTarget.taskId}/permits/${cameraTarget.index}/photo`, formData);
     }
 
@@ -521,7 +548,7 @@ export default function TaskDashboard() {
                                     {canOperate ? (
                                       <button
                                         type="button"
-                                        onClick={() => openCamera({ kind: "permit", taskId: task.id, index })}
+                                        onClick={() => beginPermitPhoto(task, permit, index)}
                                         className="inline-flex items-center justify-center gap-2 rounded-xl bg-teal-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-teal-700"
                                       >
                                         <Camera className="h-4 w-4" />
@@ -553,6 +580,7 @@ export default function TaskDashboard() {
                                         </div>
                                         <div className="text-xs leading-6 text-muted-foreground">
                                           <div>责任人: {permit.responsible_person || "-"}</div>
+                                          {permit.description ? <div>作业描述: {permit.description}</div> : null}
                                           <div>有效期至: {formatDateTime(permit.end_time)}</div>
                                         </div>
                                       </div>
@@ -689,6 +717,41 @@ export default function TaskDashboard() {
           ))}
         </div>
       )}
+
+      {permitResponsibleTarget ? (
+        <div className="fixed inset-0 z-[105] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="text-lg font-black text-slate-900">填写作业票据负责人</div>
+            <div className="mt-2 text-sm leading-6 text-slate-500">
+              负责人可以是施工员或实际作业负责人，填写后再现场拍照办理。
+            </div>
+            <input
+              type="text"
+              value={permitResponsibleName}
+              onChange={(event) => setPermitResponsibleName(event.target.value)}
+              placeholder="请输入负责人姓名"
+              className="mt-4 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-900 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+              autoFocus
+            />
+            <div className="mt-5 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setPermitResponsibleTarget(null)}
+                className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-200"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={confirmPermitResponsible}
+                className="rounded-xl bg-teal-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-teal-700"
+              >
+                去拍照
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {previewUrl ? (
         <div
