@@ -3,6 +3,9 @@ import { Link, useNavigate } from "react-router-dom";
 import api from "../lib/axios";
 import { useAuthStore } from "../stores/auth";
 
+const normalizeUsername = (value) =>
+  String(value || "").normalize("NFKC").replace(/[\s\u200B-\u200D\uFEFF]/g, "");
+
 export default function Login() {
   const navigate = useNavigate();
   const login = useAuthStore((state) => state.login);
@@ -15,9 +18,16 @@ export default function Login() {
     event.preventDefault();
     setLoading(true);
     setError("");
+    const loginUsername = normalizeUsername(username);
+
+    if (!loginUsername || !password) {
+      setError("请输入用户名和密码");
+      setLoading(false);
+      return;
+    }
 
     try {
-      const { data } = await api.post("/auth/login", { username, password });
+      const { data } = await api.post("/auth/login", { username: loginUsername, password });
       login(data.user, data.access_token);
       navigate("/dashboard");
     } catch (err) {

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { ShieldCheck } from 'lucide-react-native';
@@ -9,7 +9,7 @@ import { useAppTheme } from '../../src/hooks/useAppTheme';
 export default function LoginScreen() {
   const router = useRouter();
   const { colors } = useAppTheme();
-  const [username, setUsername] = useState('');
+  const usernameRef = useRef('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -19,7 +19,7 @@ export default function LoginScreen() {
     value.normalize('NFKC').replace(/[\s\u200B-\u200D\uFEFF]/g, '');
 
   const handleLogin = async () => {
-    const loginUsername = normalizeUsername(username);
+    const loginUsername = normalizeUsername(usernameRef.current);
     if (!loginUsername || !password) {
       setError('请输入用户名和密码');
       return;
@@ -56,14 +56,9 @@ export default function LoginScreen() {
           style={[styles.input, { borderColor: colors.border, color: colors.text, backgroundColor: colors.cardSoft }]}
           placeholder="请输入账号"
           placeholderTextColor={colors.subtext}
-          value={username}
-          onChangeText={setUsername}
-          keyboardType="default"
+          defaultValue=""
+          onChangeText={(text) => { usernameRef.current = text; }}
           autoCapitalize="none"
-          autoCorrect={false}
-          autoComplete="off"
-          textContentType="none"
-          returnKeyType="next"
         />
 
         <Text style={[styles.label, { color: colors.text }]}>密码</Text>

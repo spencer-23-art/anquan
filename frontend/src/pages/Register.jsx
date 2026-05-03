@@ -3,6 +3,8 @@ import { Link, useNavigate } from "react-router-dom";
 import api from "../lib/axios";
 
 const PASSWORD_REGEX = /^[\x20-\x7E]+$/;
+const normalizeUsername = (value) =>
+  String(value || "").normalize("NFKC").replace(/[\s\u200B-\u200D\uFEFF]/g, "");
 
 export default function Register() {
   const navigate = useNavigate();
@@ -24,6 +26,12 @@ export default function Register() {
     event.preventDefault();
     setError("");
     setSuccess("");
+    const username = normalizeUsername(form.username);
+
+    if (!username || !form.real_name.trim() || !form.password) {
+      setError("请填写用户名、真实姓名和密码");
+      return;
+    }
 
     if (!PASSWORD_REGEX.test(form.password)) {
       setError("密码只能使用英文、数字或常见符号。");
@@ -39,8 +47,8 @@ export default function Register() {
 
     try {
       await api.post("/auth/register", {
-        username: form.username,
-        real_name: form.real_name || form.username,
+        username,
+        real_name: form.real_name.trim() || username,
         phone: form.phone || null,
         password: form.password,
       });
