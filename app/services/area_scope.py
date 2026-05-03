@@ -30,6 +30,8 @@ def managed_area_ids(db: Session, user: User) -> list[int] | None:
         return None
     if user.role != UserRole.ADMIN:
         return []
+    if user.managed_area_id is None:
+        return None
     return collect_descendant_area_ids(db, user.managed_area_id)
 
 

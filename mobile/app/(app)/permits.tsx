@@ -210,8 +210,10 @@ export default function PermitsScreen() {
     const statusBg = item.status === 'expired' ? colors.cardSoft : isUrgent ? `${colors.danger}18` : item.status === 'warning' ? '#fef3c7' : colors.primarySoft;
     const countdownBg = isUrgent ? `${colors.danger}15` : `${colors.amber}15`;
 
+    const borderColor = item.status === 'expired' || remaining.ms <= 0 ? colors.border : isUrgent ? colors.danger : colors.primary;
+
     return (
-      <View style={[styles.card, { backgroundColor: colors.card, borderColor: isUrgent ? colors.danger : item.status === 'warning' ? colors.amber : colors.border }]}>
+      <View style={[styles.card, { backgroundColor: colors.card, borderColor }]}>
         {/* 头部：Permit #ID + 类型 + 状态 */}
         <View style={styles.rowBetween}>
           <View style={{ flex: 1 }}>

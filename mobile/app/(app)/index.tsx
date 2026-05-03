@@ -5,6 +5,7 @@ import { ShieldCheck } from 'lucide-react-native';
 import api from '../../src/services/api';
 import { useAuthStore } from '../../src/stores/auth';
 import { useAppTheme } from '../../src/hooks/useAppTheme';
+import { BlurView } from 'expo-blur';
 
 function statusText(status: string) {
   const value = String(status || '').toLowerCase();
@@ -120,32 +121,34 @@ export default function ClientHomeScreen() {
     const highCount = item.checklist_items?.filter((check: any) => check.severity === 'high').length || 0;
     const firstItems = (item.checklist_items || []).slice(0, 2);
     return (
-      <TouchableOpacity style={[styles.taskCard, { backgroundColor: colors.card, borderColor: colors.border }]} onPress={() => router.push(`/(app)/task/${item.id}`)}>
-        <View style={styles.taskHeader}>
-          <Text style={[styles.taskTitle, { color: colors.text }]} numberOfLines={2}>{item.title}</Text>
-          <Text style={[styles.badge, { color: isCompleted(item.status) ? colors.primary : colors.amber, backgroundColor: isCompleted(item.status) ? colors.primarySoft : '#fef3c7' }]}>
-            {statusText(item.status)}
-          </Text>
-        </View>
-        <Text style={[styles.taskDesc, { color: colors.subtext }]} numberOfLines={2}>{item.description || '管理员下发的现场风险排查任务'}</Text>
-        <View style={styles.riskList}>
-          {firstItems.map((check: any, index: number) => (
-            <View key={check.id || index} style={[styles.riskPreview, { backgroundColor: colors.cardSoft }]}>
-              <Text style={[styles.riskPreviewTitle, { color: colors.text }]} numberOfLines={2}>{index + 1}. {check.risk_description || '待排查风险'}</Text>
-              <Text style={[styles.riskPreviewSub, { color: colors.subtext }]} numberOfLines={2}>排查：{check.inspection_points || check.measure || '进入详情查看排查要求'}</Text>
-            </View>
-          ))}
-        </View>
-        <View style={styles.metaRow}>
-          <Text style={[styles.meta, { color: colors.subtext }]}>区域：{item.area?.name || '-'}</Text>
-          <Text style={[styles.meta, { color: colors.primary }]}>进度 {done}/{total}</Text>
-        </View>
-        <View style={styles.tagRow}>
-          <Text style={[styles.tag, { color: colors.danger, backgroundColor: `${colors.danger}14` }]}>{highCount} 项高风险</Text>
-          <Text style={[styles.tag, { color: colors.primary, backgroundColor: colors.primarySoft }]}>必须现场拍照</Text>
-          {firstItems[0]?.severity ? <Text style={[styles.tag, { color: colors.subtext, backgroundColor: colors.cardSoft }]}>{severityText(firstItems[0].severity)}</Text> : null}
-        </View>
-      </TouchableOpacity>
+      <BlurView intensity={100} tint={colors.bg === '#000000' ? 'dark' : 'light'} style={[styles.taskCard, { borderColor: colors.border, borderRadius: 20, overflow: 'hidden', marginBottom: 12 }]}>
+        <TouchableOpacity style={{ backgroundColor: colors.card, padding: 16 }} onPress={() => router.push(`/(app)/task/${item.id}`)}>
+          <View style={styles.taskHeader}>
+            <Text style={[styles.taskTitle, { color: colors.text }]} numberOfLines={2}>{item.title}</Text>
+            <Text style={[styles.badge, { color: isCompleted(item.status) ? colors.primary : colors.amber, backgroundColor: isCompleted(item.status) ? colors.primarySoft : '#fef3c7' }]}>
+              {statusText(item.status)}
+            </Text>
+          </View>
+          <Text style={[styles.taskDesc, { color: colors.subtext }]} numberOfLines={2}>{item.description || '管理员下发的现场风险排查任务'}</Text>
+          <View style={styles.riskList}>
+            {firstItems.map((check: any, index: number) => (
+              <View key={check.id || index} style={[styles.riskPreview, { backgroundColor: colors.cardSoft }]}>
+                <Text style={[styles.riskPreviewTitle, { color: colors.text }]} numberOfLines={2}>{index + 1}. {check.risk_description || '待排查风险'}</Text>
+                <Text style={[styles.riskPreviewSub, { color: colors.subtext }]} numberOfLines={2}>排查：{check.inspection_points || check.measure || '进入详情查看排查要求'}</Text>
+              </View>
+            ))}
+          </View>
+          <View style={styles.metaRow}>
+            <Text style={[styles.meta, { color: colors.subtext }]}>区域：{item.area?.name || '-'}</Text>
+            <Text style={[styles.meta, { color: colors.primary }]}>进度 {done}/{total}</Text>
+          </View>
+          <View style={styles.tagRow}>
+            <Text style={[styles.tag, { color: colors.danger, backgroundColor: `${colors.danger}14` }]}>{highCount} 项高风险</Text>
+            <Text style={[styles.tag, { color: colors.primary, backgroundColor: colors.primarySoft }]}>必须现场拍照</Text>
+            {firstItems[0]?.severity ? <Text style={[styles.tag, { color: colors.subtext, backgroundColor: colors.cardSoft }]}>{severityText(firstItems[0].severity)}</Text> : null}
+          </View>
+        </TouchableOpacity>
+      </BlurView>
     );
   };
 
@@ -157,17 +160,19 @@ export default function ClientHomeScreen() {
   };
 
   return (
-    <View style={[styles.page, { backgroundColor: colors.bg }]}>
+    <View style={styles.page}>
       {/* 欢迎区 */}
-      <View style={[styles.hero, { backgroundColor: colors.card, borderColor: colors.border }]}>
-        <View style={[styles.heroIcon, { backgroundColor: colors.primarySoft }]}>
-          <ShieldCheck color={colors.primary} size={28} />
+      <BlurView intensity={100} tint={colors.bg === '#000000' ? 'dark' : 'light'} style={{ borderRadius: 24, overflow: 'hidden', marginBottom: 14, borderWidth: 1, borderColor: colors.border }}>
+        <View style={{ backgroundColor: colors.card, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <View style={[styles.heroIcon, { backgroundColor: colors.primarySoft }]}>
+            <ShieldCheck color={colors.primary} size={28} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.hello, { color: colors.text }]}>安全员工作台</Text>
+            <Text style={[styles.sub, { color: colors.subtext }]}>{user?.real_name || user?.username || '安全员'}，你有 {pendingCount} 项待排查任务</Text>
+          </View>
         </View>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.hello, { color: colors.text }]}>安全员工作台</Text>
-          <Text style={[styles.sub, { color: colors.subtext }]}>{user?.real_name || user?.username || '安全员'}，你有 {pendingCount} 项待排查任务</Text>
-        </View>
-      </View>
+      </BlurView>
 
       <Text style={[styles.sectionTitle, { color: colors.text }]}>分发给我的安全任务</Text>
       {message ? <Text style={[styles.message, { color: colors.danger }]}>{message}</Text> : null}
@@ -200,7 +205,16 @@ const styles = StyleSheet.create({
   datePill: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, alignItems: 'center' },
   dateLabel: { fontSize: 13, fontWeight: '900' },
   dateCount: { marginTop: 1, fontSize: 10, fontWeight: '700' },
-  taskCard: { borderWidth: 1, borderRadius: 20, padding: 16, marginBottom: 12 },
+  taskCard: { 
+    borderWidth: 1, 
+    borderRadius: 20, 
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 4,
+  },
   taskHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 },
   taskTitle: { flex: 1, fontSize: 16, fontWeight: '900' },
   badge: { overflow: 'hidden', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4, fontSize: 12, fontWeight: '800' },

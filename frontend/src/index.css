@@ -68,8 +68,17 @@
   }
 
   body {
-    @apply bg-background text-foreground antialiased;
-    font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    @apply antialiased;
+    background: radial-gradient(circle at 50% -20%, #1e293b 0%, #020617 100%);
+    color: #f8fafc;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif;
+    min-height: 100vh;
+    letter-spacing: -0.01em;
+  }
+
+  :root[data-theme="light"] body {
+    background: radial-gradient(circle at 50% -20%, #ffffff 0%, #f1f5f9 100%);
+    color: #0f172a;
   }
 
   input,
@@ -217,5 +226,31 @@
   :root[data-theme="dark"] .ai-risk-page textarea::placeholder,
   :root[data-theme="dark"] .ai-risk-page input::placeholder {
     color: #9facbd !important;
+  }
+}
+
+@layer utilities {
+  .glass-card, .glass-panel {
+    @apply rounded-3xl border border-white/60 bg-white/50 backdrop-blur-3xl shadow-[0_8px_32px_rgba(0,0,0,0.08),inset_0_1px_1px_rgba(255,255,255,0.8)];
+  }
+
+  .glass-card {
+    @apply transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] hover:scale-[1.015] hover:-translate-y-1 hover:shadow-[0_20px_40px_rgba(0,242,254,0.12),inset_0_1px_1px_rgba(255,255,255,0.8)];
+  }
+
+  :root[data-theme="dark"] .glass-card,
+  :root[data-theme="dark"] .glass-panel {
+    @apply border-white/20 bg-[#1e293b]/50 shadow-[0_8px_32px_rgba(0,0,0,0.4),inset_0_1px_1px_rgba(255,255,255,0.1)];
+  }
+
+  :root[data-theme="dark"] .glass-card {
+    @apply hover:shadow-[0_20px_40px_rgba(0,242,254,0.15),inset_0_1px_1px_rgba(255,255,255,0.1)];
+  }
+
+  .glass-header {
+    @apply bg-white/60 dark:bg-black/50 backdrop-blur-3xl border-b border-white/30 dark:border-white/10;
+  }
+  .apple-input {
+    @apply bg-white/50 dark:bg-black/40 backdrop-blur-2xl border border-white/40 dark:border-white/10 focus:ring-2 focus:ring-[#00f2fe]/50 rounded-[16px] transition-all duration-300;
   }
 }

@@ -46,7 +46,7 @@ export default function FinesScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [generatingAI, setGeneratingAI] = useState(false);
-  const [showCreate, setShowCreate] = useState(false);
+  const [activeTab, setActiveTab] = useState<'create' | 'history'>('create');
   const [message, setMessage] = useState('');
   const [form, setForm] = useState(defaultForm);
   const [summaryInput, setSummaryInput] = useState('');
@@ -154,7 +154,7 @@ export default function FinesScreen() {
         } as any);
       }
       await api.post('fines', data, { headers: { 'Content-Type': 'multipart/form-data' } });
-      setShowCreate(false);
+      setActiveTab('history');
       setForm((cur) => ({ ...defaultForm, area_id: cur.area_id, project_name: cur.project_name }));
       setSummaryInput('');
       setPhoto(null);
@@ -172,79 +172,64 @@ export default function FinesScreen() {
     setSummaryInput('');
     setPhoto(null);
   };
-
   return (
     <View style={[styles.page, { backgroundColor: colors.bg }]}>
-      {/* 顶部描述 */}
-      <View style={[styles.notice, { backgroundColor: colors.card, borderColor: colors.border }]}>
-        <Text style={[styles.noticeTitle, { color: colors.text }]}>在线罚单</Text>
-        <Text style={[styles.noticeText, { color: colors.subtext }]}>
-          可开具安全/质量罚单，支持 AI 生成描述和现场照片上传。
-        </Text>
+      <View style={[styles.tabRow, { backgroundColor: colors.cardSoft }]}>
+        <TouchableOpacity
+          style={[styles.tabButton, activeTab === 'create' && { backgroundColor: colors.card, borderColor: colors.border }]}
+          onPress={() => { setActiveTab('create'); setMessage(''); }}
+        >
+          <Text style={[styles.tabText, { color: activeTab === 'create' ? colors.primary : colors.subtext }]}>新建罚单</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tabButton, activeTab === 'history' && { backgroundColor: colors.card, borderColor: colors.border }]}
+          onPress={() => { setActiveTab('history'); setMessage(''); }}
+        >
+          <Text style={[styles.tabText, { color: activeTab === 'history' ? colors.primary : colors.subtext }]}>历史记录</Text>
+        </TouchableOpacity>
       </View>
 
-      <TouchableOpacity
-        style={[styles.createButton, { backgroundColor: colors.primary }]}
-        onPress={() => setShowCreate(true)}
-      >
-        <Text style={styles.createText}>新建罚单</Text>
-      </TouchableOpacity>
-
       {message ? (
-        <Text style={[styles.message, { color: colors.danger }]}>{message}</Text>
+        <Text style={[styles.message, { color: colors.danger, marginTop: 10 }]}>{message}</Text>
       ) : null}
 
-      {loading ? (
-        <ActivityIndicator color={colors.primary} style={{ marginTop: 30 }} />
+      {activeTab === 'history' ? (
+        loading ? (
+          <ActivityIndicator color={colors.primary} style={{ marginTop: 30 }} />
+        ) : (
+          <FlatList
+            data={items}
+            keyExtractor={(item) => String(item.id)}
+            onRefresh={loadData}
+            refreshing={loading}
+            contentContainerStyle={{ paddingBottom: 24, paddingTop: 10 }}
+            ListEmptyComponent={
+              <Text style={[styles.empty, { color: colors.subtext }]}>暂无罚单记录</Text>
+            }
+            renderItem={({ item }) => (
+              <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <View style={styles.rowBetween}>
+                  <Text style={[styles.number, { color: colors.text }]}>{item.number}</Text>
+                  <Text style={[styles.amount, { color: colors.danger }]}>¥{item.amount}</Text>
+                </View>
+                <Text style={[styles.meta, { color: colors.subtext }]}>
+                  类型：{item.ticket_type === 'safety' ? '安全罚单' : '质量罚单'}
+                </Text>
+                <Text style={[styles.meta, { color: colors.subtext }]}>班组：{item.team_name || '-'}</Text>
+                <Text style={[styles.meta, { color: colors.subtext }]}>部位：{item.location || '-'}</Text>
+                <Text style={[styles.desc, { color: colors.text }]} numberOfLines={4}>
+                  {item.description || '暂无描述'}
+                </Text>
+              </View>
+            )}
+          />
+        )
       ) : (
-        <FlatList
-          data={items}
-          keyExtractor={(item) => String(item.id)}
-          onRefresh={loadData}
-          refreshing={loading}
-          contentContainerStyle={{ paddingBottom: 24 }}
-          ListEmptyComponent={
-            <Text style={[styles.empty, { color: colors.subtext }]}>暂无罚单记录</Text>
-          }
-          renderItem={({ item }) => (
-            <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <View style={styles.rowBetween}>
-                <Text style={[styles.number, { color: colors.text }]}>{item.number}</Text>
-                <Text style={[styles.amount, { color: colors.danger }]}>¥{item.amount}</Text>
-              </View>
-              <Text style={[styles.meta, { color: colors.subtext }]}>
-                类型：{item.ticket_type === 'safety' ? '安全罚单' : '质量罚单'}
-              </Text>
-              <Text style={[styles.meta, { color: colors.subtext }]}>班组：{item.team_name || '-'}</Text>
-              <Text style={[styles.meta, { color: colors.subtext }]}>部位：{item.location || '-'}</Text>
-              <Text style={[styles.desc, { color: colors.text }]} numberOfLines={4}>
-                {item.description || '暂无描述'}
-              </Text>
-            </View>
-          )}
-        />
-      )}
-
-      {/* 新建罚单 Modal */}
-      <Modal
-        visible={showCreate}
-        transparent
-        animationType="slide"
-        onRequestClose={closeModal}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: colors.card }]}>
-            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-              {/* 标题栏 */}
-              <View style={styles.modalHeader}>
-                <Text style={[styles.modalTitle, { color: colors.text }]}>新建罚单</Text>
-                <TouchableOpacity onPress={closeModal}>
-                  <X size={20} color={colors.subtext} />
-                </TouchableOpacity>
-              </View>
-
+        <View style={{ flex: 1 }}>
+          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 40, paddingTop: 10 }}>
+            <View style={[styles.createCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
               {/* 罚单类型 */}
-              <Text style={[styles.fieldLabel, { color: colors.text }]}>罚单类型</Text>
+              <Text style={[styles.fieldLabel, { color: colors.text, marginTop: 0 }]}>罚单类型</Text>
               <View style={styles.typeRow}>
                 {(['safety', 'quality'] as const).map((type) => (
                   <TouchableOpacity
@@ -385,7 +370,7 @@ export default function FinesScreen() {
               <View style={[styles.aiBox, { backgroundColor: colors.cardSoft, borderColor: colors.border }]}>
                 <View style={styles.aiHeader}>
                   <Sparkles size={15} color={colors.primary} />
-                  <Text style={[styles.fieldLabel, { color: colors.text, marginBottom: 0 }]}>
+                  <Text style={[styles.fieldLabel, { color: colors.text, marginBottom: 0, marginTop: 0 }]}>
                     违规概况（AI 生成描述）
                   </Text>
                 </View>
@@ -448,7 +433,7 @@ export default function FinesScreen() {
               )}
 
               {message ? (
-                <Text style={[styles.message, { color: colors.danger }]}>{message}</Text>
+                <Text style={[styles.message, { color: colors.danger, marginTop: 10 }]}>{message}</Text>
               ) : null}
 
               {/* 提交 */}
@@ -463,10 +448,10 @@ export default function FinesScreen() {
                   <Text style={styles.createText}>提交罚单</Text>
                 )}
               </TouchableOpacity>
-            </ScrollView>
-          </View>
+            </View>
+          </ScrollView>
         </View>
-      </Modal>
+      )}
     </View>
   );
 }
@@ -476,10 +461,14 @@ const styles = StyleSheet.create({
   notice: { borderWidth: 1, borderRadius: 20, padding: 16, marginBottom: 14 },
   noticeTitle: { fontSize: 20, fontWeight: '900' },
   noticeText: { marginTop: 8, lineHeight: 20, fontSize: 13 },
+  tabRow: { flexDirection: 'row', borderRadius: 16, padding: 4, marginBottom: 14 },
+  tabButton: { flex: 1, borderRadius: 12, paddingVertical: 10, alignItems: 'center', borderWidth: 1, borderColor: 'transparent' },
+  tabText: { fontWeight: '900', fontSize: 14 },
   message: { marginBottom: 10, fontWeight: '800' },
   createButton: { borderRadius: 16, padding: 15, alignItems: 'center', marginBottom: 14 },
   createText: { color: '#fff', fontWeight: '900', fontSize: 15 },
-  card: { borderWidth: 1, borderRadius: 18, padding: 14, marginBottom: 12 },
+  createCard: { borderWidth: 1, borderRadius: 20, padding: 16, marginBottom: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3 },
+  card: { borderWidth: 1, borderRadius: 18, padding: 14, marginBottom: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3 },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
   number: { fontSize: 16, fontWeight: '900' },
   amount: { fontWeight: '900' },

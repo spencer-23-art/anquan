@@ -12,6 +12,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import {
   CalendarDays,
   ClipboardCheck,
@@ -54,7 +56,7 @@ export default function AppLayout() {
   const pathname = usePathname();
   const logout = useAuthStore((state) => state.logout);
   const user = useAuthStore((state) => state.user);
-  const { colors } = useAppTheme();
+  const { colors, resolved } = useAppTheme();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(false);
   const sidebarProgress = useRef(new Animated.Value(0)).current;
@@ -123,12 +125,16 @@ export default function AppLayout() {
   });
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.bg }]} {...swipeResponder.panHandlers}>
+    <View style={styles.root} {...swipeResponder.panHandlers}>
+      <LinearGradient
+        colors={resolved === 'dark' ? ['#020617', '#000000'] : ['#ffffff', '#f1f5f9']}
+        style={StyleSheet.absoluteFill}
+      />
       {/* ===== 顶部 Header（与 web 端 mobile header 一致） ===== */}
-      <SafeAreaView style={{ backgroundColor: colors.card }}>
-        <View style={[styles.header, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
+      <BlurView intensity={100} tint={resolved === 'dark' ? 'dark' : 'light'} style={{ paddingTop: 40 }}>
+        <View style={[styles.header, { borderBottomColor: colors.border }]}>
           <TouchableOpacity
-            style={[styles.menuBtn, { borderColor: colors.border }]}
+            style={[styles.menuBtn, { borderColor: resolved === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)' }]}
             onPress={openSidebar}
           >
             <Menu size={18} color={colors.text} />
@@ -140,7 +146,7 @@ export default function AppLayout() {
             </Text>
           </View>
         </View>
-      </SafeAreaView>
+      </BlurView>
 
       {/* ===== 主内容区 ===== */}
       <View style={styles.content}>
@@ -160,17 +166,18 @@ export default function AppLayout() {
             style={[
               styles.sidebar,
               {
-                backgroundColor: colors.card,
                 borderRightColor: colors.border,
                 transform: [{ translateX: sidebarTranslateX }],
+                overflow: 'hidden',
               },
             ]}
           >
+          <BlurView intensity={90} tint={colors.bg === '#17211f' ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
           <SafeAreaView style={styles.sidebarSafe}>
             {/* 关闭按钮 */}
             <View style={styles.sidebarClose}>
               <TouchableOpacity
-                style={[styles.closeBtn, { borderColor: colors.border }]}
+                style={[styles.closeBtn, { borderColor: 'rgba(150,150,150,0.2)' }]}
                 onPress={closeSidebar}
               >
                 <X size={18} color={colors.subtext} />
@@ -201,11 +208,11 @@ export default function AppLayout() {
                     onPress={() => navigate(link.path)}
                     activeOpacity={0.7}
                   >
-                    <IconComp size={20} color={active ? '#fff' : colors.subtext} />
+                    <IconComp size={20} color={active ? '#fff' : colors.text} />
                     <Text
                       style={[
                         styles.navLabel,
-                        { color: active ? '#fff' : colors.subtext },
+                        { color: active ? '#fff' : colors.text },
                       ]}
                     >
                       {link.label}

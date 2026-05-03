@@ -52,7 +52,7 @@ function SidebarContent({ user, onLogout, onNavigate }) {
               `flex items-center gap-3 rounded-xl p-3 transition-colors ${
                 isActive
                   ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  : "text-slate-900 dark:text-muted-foreground hover:bg-accent hover:text-accent-foreground"
               }`
             }
           >
@@ -74,7 +74,7 @@ function SidebarContent({ user, onLogout, onNavigate }) {
         </div>
         <button
           onClick={onLogout}
-          className="flex w-full items-center gap-3 rounded-xl p-3 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+          className="flex w-full items-center gap-3 rounded-xl p-3 text-slate-900 dark:text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
         >
           <LogOut size={20} />
           <span className="font-medium">退出登录</span>
@@ -126,11 +126,11 @@ export default function Layout() {
 
   return (
     <div
-      className="flex min-h-screen bg-background text-foreground"
+      className="flex min-h-screen text-slate-900 dark:text-slate-100"
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
-      <aside className="hidden w-56 border-r border-border bg-card xl:w-60 lg:flex lg:flex-col">
+      <aside className="hidden w-56 border-r border-white/20 dark:border-white/10 glass-panel xl:w-60 lg:flex lg:flex-col">
         <SidebarContent user={user} onLogout={handleLogout} />
       </aside>
 
@@ -147,7 +147,7 @@ export default function Layout() {
             onClick={() => setMobileOpen(false)}
           />
           <aside
-            className={`absolute inset-y-0 left-0 z-50 flex w-[86vw] max-w-[320px] transform flex-col border-r border-border bg-white shadow-2xl transition-transform duration-200 ease-out ${
+            className={`absolute inset-y-0 left-0 z-50 flex w-[86vw] max-w-[320px] transform flex-col border-r border-white/20 dark:border-white/10 glass-panel transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] ${
               mobileOpen ? "translate-x-0" : "-translate-x-full"
             }`}
           >
@@ -168,8 +168,8 @@ export default function Layout() {
           </aside>
         </div>
 
-      <main className="flex min-w-0 flex-1 flex-col bg-muted/30">
-        <header className="sticky top-0 z-30 flex items-center justify-start gap-3 border-b border-border bg-white/92 px-4 py-3 backdrop-blur lg:hidden">
+      <main className="flex min-w-0 flex-1 flex-col bg-transparent">
+        <header className="sticky top-0 z-30 flex items-center justify-start gap-3 glass-header px-4 py-3 lg:hidden">
           <button
             type="button"
             onClick={() => setMobileOpen(true)}

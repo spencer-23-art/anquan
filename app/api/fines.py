@@ -94,7 +94,7 @@ def create_fine_ticket(
 
     photo_paths: list[Path] = []
     try:
-        if area_id is not None:
+        if area_id is not None and current_user.role == UserRole.ADMIN:
             ensure_area_access(db, current_user, area_id)
 
         number = fine_ticket_service.consume_next_number(ticket_type)

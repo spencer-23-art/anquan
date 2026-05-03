@@ -211,10 +211,11 @@ function PhotoGallery({
   heightClass = "h-36",
   gridClass = "grid-cols-2",
   onPreview,
+  onAddPhoto,
 }) {
   const urls = photoUrls(value);
 
-  if (urls.length === 0) {
+  if (urls.length === 0 && !onAddPhoto) {
     return emptyText ? (
       <div className={`flex ${heightClass} items-center justify-center rounded-xl border border-dashed border-border bg-secondary/20 p-4 text-center text-xs text-muted-foreground`}>
         {emptyText}
@@ -242,6 +243,16 @@ function PhotoGallery({
           </button>
         );
       })}
+      {onAddPhoto && (
+        <button
+          type="button"
+          onClick={onAddPhoto}
+          className={`flex ${heightClass} items-center justify-center rounded-xl border border-dashed border-primary/40 bg-primary/5 text-primary transition hover:bg-primary/10 hover:shadow-inner`}
+          title="添加照片"
+        >
+          <Camera className="h-6 w-6 opacity-60" />
+        </button>
+      )}
     </div>
   );
 }
@@ -458,7 +469,7 @@ export default function TaskDashboard() {
       {loading ? (
         <div className="py-20 text-center text-muted-foreground">正在加载任务数据...</div>
       ) : groupedTasks.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-6 py-12 text-center text-sm text-slate-500">
+        <div className="glass-card border-dashed px-6 py-12 text-center text-sm text-slate-500">
           当前还没有任务记录。
         </div>
       ) : (
@@ -481,7 +492,7 @@ export default function TaskDashboard() {
                   return (
                     <div
                       key={task.id}
-                      className="overflow-hidden rounded-xl border border-border bg-card transition-all hover:shadow-md"
+                      className="overflow-hidden glass-card transition-all hover:shadow-[0_8px_32px_rgba(0,0,0,0.08)]"
                     >
                       <div
                         className="flex cursor-pointer items-center justify-between p-4 hover:bg-secondary/20"
@@ -525,7 +536,7 @@ export default function TaskDashboard() {
                       </div>
 
                       {expandedTask === task.id ? (
-                        <div className="animate-in slide-in-from-top-2 space-y-6 border-t border-border bg-secondary/10 p-4 fade-in">
+                        <div className="animate-in slide-in-from-top-2 space-y-6 border-t border-white/20 dark:border-white/10 bg-transparent p-4 fade-in">
                           {task.associated_permits && task.associated_permits.length > 0 ? (
                             <div className="space-y-3">
                               <h3 className="text-sm font-bold text-foreground">
@@ -535,7 +546,7 @@ export default function TaskDashboard() {
                                 {task.associated_permits.map((permit, index) => (
                                   <div
                                     key={index}
-                                    className="flex min-h-[260px] flex-col gap-3 rounded-xl border border-blue-500/30 bg-background p-3 shadow-sm"
+                                    className="flex min-h-[260px] flex-col gap-3 glass-panel p-3"
                                   >
                                     <PhotoGallery
                                       value={permit.photo_url}
@@ -544,17 +555,8 @@ export default function TaskDashboard() {
                                       heightClass="h-40"
                                       gridClass="grid-cols-2"
                                       onPreview={setPreviewUrl}
+                                      onAddPhoto={canOperate ? () => beginPermitPhoto(task, permit, index) : null}
                                     />
-                                    {canOperate ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => beginPermitPhoto(task, permit, index)}
-                                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-teal-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-teal-700"
-                                      >
-                                        <Camera className="h-4 w-4" />
-                                        {permit.permit_id ? "重拍作业票据" : "拍照办理作业票据"}
-                                      </button>
-                                    ) : null}
 
                                     <div className="flex flex-1 flex-col justify-between gap-3 rounded-lg bg-blue-500/5 p-3">
                                       <div className="space-y-2">
@@ -600,7 +602,7 @@ export default function TaskDashboard() {
                               {checklistItems.map((item, index) => (
                                 <div
                                   key={index}
-                                  className={`relative flex flex-col gap-3 rounded-xl border border-border bg-background p-3 shadow-sm ${
+                                  className={`relative flex flex-col gap-3 glass-panel p-3 ${
                                     showAdminCompactRisk ? "min-h-[260px]" : "min-h-[420px]"
                                   }`}
                                 >
@@ -655,54 +657,33 @@ export default function TaskDashboard() {
                                     </>
                                   ) : null}
 
-                                  {statusValue(item.status) === "checked" ? (
-                                    <div className="mt-2 space-y-2">
-                                      <PhotoGallery
-                                        value={item.photo_url}
-                                        alt="巡检照片"
-                                        heightClass="h-28"
-                                        gridClass="grid-cols-2"
-                                        onPreview={setPreviewUrl}
-                                      />
+                                  <div className="mt-2 space-y-2">
+                                    <PhotoGallery
+                                      value={item.photo_url}
+                                      alt="巡检照片"
+                                      emptyText={canOperate ? "点击加号调用摄像头现场拍照" : "等待执行人上传"}
+                                      heightClass="h-28"
+                                      gridClass="grid-cols-2"
+                                      onPreview={setPreviewUrl}
+                                      onAddPhoto={canOperate ? () => openCamera({ 
+                                          kind: statusValue(item.status) === "checked" ? "add_photo" : "check", 
+                                          taskId: task.id, 
+                                          id: item.id 
+                                      }) : null}
+                                    />
 
-                                      {canOperate ? (
-                                        <button
-                                          type="button"
-                                          onClick={() => openCamera({ kind: "add_photo", taskId: task.id, id: item.id })}
-                                          className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-teal-300 bg-teal-50 px-3 py-2 text-xs font-bold text-teal-700 transition hover:bg-teal-100"
-                                        >
-                                          <Camera className="h-4 w-4" />
-                                          追加现场照片
-                                        </button>
-                                      ) : null}
+                                    {item.note ? (
+                                      <div className="rounded bg-secondary/30 p-1.5 text-[10px] text-muted-foreground">
+                                        备注: {item.note}
+                                      </div>
+                                    ) : null}
 
-                                      {item.note ? (
-                                        <div className="rounded bg-secondary/30 p-1.5 text-[10px] text-muted-foreground">
-                                          备注: {item.note}
-                                        </div>
-                                      ) : null}
-
+                                    {statusValue(item.status) === "checked" && item.checked_at ? (
                                       <div className="text-[10px] italic text-muted-foreground">
                                         完成时间: {formatDateTime(item.checked_at)}
                                       </div>
-                                    </div>
-                                  ) : (
-                                    <div className="mt-2 flex h-32 flex-col items-center justify-center gap-2 rounded border border-dashed border-border p-3 text-center text-[10px] text-muted-foreground">
-                                      {canOperate ? (
-                                        <button
-                                          type="button"
-                                          onClick={() => openCamera({ kind: "check", taskId: task.id, id: item.id })}
-                                          className="inline-flex items-center justify-center gap-2 rounded-xl bg-teal-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-teal-700"
-                                        >
-                                          <Camera className="h-4 w-4" />
-                                          现场拍照确认
-                                        </button>
-                                      ) : (
-                                        "等待执行人上传"
-                                      )}
-                                      {canOperate ? <span>只能调用摄像头现场拍照</span> : null}
-                                    </div>
-                                  )}
+                                    ) : null}
+                                  </div>
                                 </div>
                               ))}
                             </div>
@@ -719,8 +700,8 @@ export default function TaskDashboard() {
       )}
 
       {permitResponsibleTarget ? (
-        <div className="fixed inset-0 z-[105] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
+        <div className="fixed inset-0 z-[105] flex items-center justify-center bg-black/40 p-4 backdrop-blur-md">
+          <div className="w-full max-w-md glass-card p-6 shadow-2xl">
             <div className="text-lg font-black text-slate-900">填写作业票据负责人</div>
             <div className="mt-2 text-sm leading-6 text-slate-500">
               负责人可以是施工员或实际作业负责人，填写后再现场拍照办理。
@@ -730,7 +711,7 @@ export default function TaskDashboard() {
               value={permitResponsibleName}
               onChange={(event) => setPermitResponsibleName(event.target.value)}
               placeholder="请输入负责人姓名"
-              className="mt-4 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-900 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+              className="mt-4 w-full apple-input px-3 py-2 text-sm font-bold text-slate-900 outline-none"
               autoFocus
             />
             <div className="mt-5 flex justify-end gap-3">
