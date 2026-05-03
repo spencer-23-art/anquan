@@ -15,15 +15,19 @@ export default function LoginScreen() {
   const [error, setError] = useState('');
   const setToken = useAuthStore((state) => state.setToken);
 
+  const normalizeUsername = (value: string) =>
+    value.normalize('NFKC').replace(/[\s\u200B-\u200D\uFEFF]/g, '');
+
   const handleLogin = async () => {
-    if (!username.trim() || !password) {
+    const loginUsername = normalizeUsername(username);
+    if (!loginUsername || !password) {
       setError('请输入用户名和密码');
       return;
     }
     setLoading(true);
     setError('');
     try {
-      const res = await api.post('auth/login', { username: username.trim(), password });
+      const res = await api.post('auth/login', { username: loginUsername, password });
       await setToken(res.data.access_token, res.data.user);
     } catch (err: any) {
       if (err.response?.status === 401) {

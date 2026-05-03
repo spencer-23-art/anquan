@@ -1,6 +1,7 @@
 ﻿from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
+import unicodedata
 
 from app.api.deps import get_db
 from app.core.security import create_access_token, hash_password, verify_password
@@ -14,8 +15,27 @@ LOGIN_LOCK_MINUTES = 10
 _login_failures: dict[str, list[datetime]] = {}
 
 
+def normalize_username(username: str) -> str:
+    text = unicodedata.normalize("NFKC", str(username or ""))
+    return "".join(
+        char for char in text if not char.isspace() and unicodedata.category(char) != "Cf"
+    ).lower()
+
+
 def _login_key(username: str) -> str:
-    return username.strip().lower()
+    return normalize_username(username)
+
+
+def _find_user_by_username(db: Session, username: str) -> User | None:
+    stripped = str(username or "").strip()
+    user = db.query(User).filter(User.username == stripped).first()
+    if user:
+        return user
+    normalized = normalize_username(username)
+    for candidate in db.query(User).all():
+        if normalize_username(candidate.username) == normalized:
+            return candidate
+    return None
 
 
 def _assert_login_not_locked(username: str) -> None:
@@ -41,12 +61,13 @@ def _clear_login_failures(username: str) -> None:
 
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 def register(data: UserRegister, db: Session = Depends(get_db)):
-    existing = db.query(User).filter(User.username == data.username).first()
+    username = unicodedata.normalize("NFKC", data.username).strip()
+    existing = _find_user_by_username(db, username)
     if existing:
         raise HTTPException(status_code=400, detail="Username already exists")
 
     user = User(
-        username=data.username,
+        username=username,
         password_hash=hash_password(data.password),
         real_name=data.real_name,
         phone=data.phone,
@@ -63,7 +84,7 @@ def register(data: UserRegister, db: Session = Depends(get_db)):
 @router.post("/login", response_model=Token)
 def login(data: UserLogin, db: Session = Depends(get_db)):
     _assert_login_not_locked(data.username)
-    user = db.query(User).filter(User.username == data.username).first()
+    user = _find_user_by_username(db, data.username)
     if not user or not verify_password(data.password, user.password_hash):
         _record_login_failure(data.username)
         raise HTTPException(status_code=401, detail="Invalid username or password")

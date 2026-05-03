@@ -14,8 +14,12 @@ export default function RegisterScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  const normalizeUsername = (value: string) =>
+    value.normalize('NFKC').replace(/[\s\u200B-\u200D\uFEFF]/g, '');
+
   const handleRegister = async () => {
-    if (!username.trim() || !password || !realName.trim()) {
+    const registerUsername = normalizeUsername(username);
+    if (!registerUsername || !password || !realName.trim()) {
       setError('请填写账号、姓名和密码');
       return;
     }
@@ -23,7 +27,7 @@ export default function RegisterScreen() {
     setError('');
     try {
       await api.post('auth/register', {
-        username: username.trim(),
+        username: registerUsername,
         password,
         real_name: realName.trim(),
       });
