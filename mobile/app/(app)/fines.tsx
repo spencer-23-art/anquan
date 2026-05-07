@@ -1,11 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   FlatList,
   Image,
-  Modal,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,7 +13,7 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
-import { Camera, History, Sparkles, X } from 'lucide-react-native';
+import { Camera, Sparkles, X } from 'lucide-react-native';
 import api from '../../src/services/api';
 import { useAppTheme } from '../../src/hooks/useAppTheme';
 
@@ -166,15 +164,9 @@ export default function FinesScreen() {
     }
   };
 
-  const closeModal = () => {
-    setShowCreate(false);
-    setMessage('');
-    setSummaryInput('');
-    setPhoto(null);
-  };
   return (
     <View style={[styles.page, { backgroundColor: colors.bg }]}>
-      <View style={[styles.tabRow, { backgroundColor: colors.cardSoft }]}>
+      <View style={[styles.tabRow, { backgroundColor: colors.cardSoft, borderColor: colors.border }]}>
         <TouchableOpacity
           style={[styles.tabButton, activeTab === 'create' && { backgroundColor: colors.card, borderColor: colors.border }]}
           onPress={() => { setActiveTab('create'); setMessage(''); }}
@@ -207,7 +199,8 @@ export default function FinesScreen() {
               <Text style={[styles.empty, { color: colors.subtext }]}>暂无罚单记录</Text>
             }
             renderItem={({ item }) => (
-              <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <View style={[styles.card, { backgroundColor: colors.card, borderColor: '#6fbfb1' }]}>
+                <View style={[styles.cardAccent, { backgroundColor: item.ticket_type === 'safety' ? colors.primary : colors.amber }]} />
                 <View style={styles.rowBetween}>
                   <Text style={[styles.number, { color: colors.text }]}>{item.number}</Text>
                   <Text style={[styles.amount, { color: colors.danger }]}>¥{item.amount}</Text>
@@ -227,7 +220,8 @@ export default function FinesScreen() {
       ) : (
         <View style={{ flex: 1 }}>
           <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 40, paddingTop: 10 }}>
-            <View style={[styles.createCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={[styles.createCard, { backgroundColor: colors.card, borderColor: '#6fbfb1' }]}>
+              <View style={[styles.cardAccent, { backgroundColor: colors.primary }]} />
               {/* 罚单类型 */}
               <Text style={[styles.fieldLabel, { color: colors.text, marginTop: 0 }]}>罚单类型</Text>
               <View style={styles.typeRow}>
@@ -461,14 +455,15 @@ const styles = StyleSheet.create({
   notice: { borderWidth: 1, borderRadius: 20, padding: 16, marginBottom: 14 },
   noticeTitle: { fontSize: 20, fontWeight: '900' },
   noticeText: { marginTop: 8, lineHeight: 20, fontSize: 13 },
-  tabRow: { flexDirection: 'row', borderRadius: 16, padding: 4, marginBottom: 14 },
+  tabRow: { flexDirection: 'row', borderWidth: 1, borderRadius: 16, padding: 4, marginBottom: 14 },
   tabButton: { flex: 1, borderRadius: 12, paddingVertical: 10, alignItems: 'center', borderWidth: 1, borderColor: 'transparent' },
   tabText: { fontWeight: '900', fontSize: 14 },
   message: { marginBottom: 10, fontWeight: '800' },
   createButton: { borderRadius: 16, padding: 15, alignItems: 'center', marginBottom: 14 },
   createText: { color: '#fff', fontWeight: '900', fontSize: 15 },
-  createCard: { borderWidth: 1, borderRadius: 20, padding: 16, marginBottom: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3 },
-  card: { borderWidth: 1, borderRadius: 18, padding: 14, marginBottom: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3 },
+  createCard: { borderWidth: 1.5, borderRadius: 22, padding: 16, marginBottom: 20, overflow: 'hidden', shadowColor: '#0f766e', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.16, shadowRadius: 16, elevation: 6 },
+  card: { borderWidth: 1.5, borderRadius: 20, padding: 14, marginBottom: 14, overflow: 'hidden', shadowColor: '#0f766e', shadowOffset: { width: 0, height: 7 }, shadowOpacity: 0.14, shadowRadius: 14, elevation: 5 },
+  cardAccent: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 5 },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
   number: { fontSize: 16, fontWeight: '900' },
   amount: { fontWeight: '900' },
@@ -482,21 +477,21 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 20, fontWeight: '900' },
   fieldLabel: { fontSize: 13, fontWeight: '900', marginBottom: 8, marginTop: 14 },
   typeRow: { flexDirection: 'row', gap: 10 },
-  typeButton: { flex: 1, borderWidth: 1, borderRadius: 14, padding: 12, alignItems: 'center' },
+  typeButton: { flex: 1, borderWidth: 1.2, borderRadius: 14, padding: 12, alignItems: 'center' },
   chipScroll: { marginBottom: 4 },
   chipRow: { gap: 8, paddingRight: 8 },
-  chip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 },
-  input: { borderWidth: 1, borderRadius: 14, padding: 12, fontSize: 14 },
+  chip: { borderWidth: 1.2, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 },
+  input: { borderWidth: 1.2, borderRadius: 14, padding: 12, fontSize: 14 },
   amountRow: { gap: 8, paddingRight: 8 },
-  amountChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 9 },
-  aiBox: { borderWidth: 1, borderRadius: 18, padding: 14, marginTop: 14 },
+  amountChip: { borderWidth: 1.2, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 9 },
+  aiBox: { borderWidth: 1.2, borderRadius: 18, padding: 14, marginTop: 14 },
   aiHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
-  textarea: { borderWidth: 1, borderRadius: 14, padding: 12, minHeight: 80, fontSize: 14 },
+  textarea: { borderWidth: 1.2, borderRadius: 14, padding: 12, minHeight: 80, fontSize: 14 },
   aiButton: { borderRadius: 14, padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 10 },
   aiButtonText: { color: '#fff', fontWeight: '900', fontSize: 13 },
   photoPreviewWrap: { position: 'relative', alignSelf: 'flex-start' },
   photoPreview: { width: 120, height: 120, borderRadius: 14 },
   photoRemove: { position: 'absolute', top: 4, right: 4, backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 999, padding: 4 },
-  photoAdd: { height: 100, borderWidth: 1, borderStyle: 'dashed', borderRadius: 14, alignItems: 'center', justifyContent: 'center', gap: 8 },
+  photoAdd: { height: 100, borderWidth: 1.4, borderStyle: 'dashed', borderRadius: 14, alignItems: 'center', justifyContent: 'center', gap: 8 },
   photoAddText: { fontSize: 13, fontWeight: '700' },
 });

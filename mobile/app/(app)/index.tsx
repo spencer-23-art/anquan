@@ -121,8 +121,19 @@ export default function ClientHomeScreen() {
     const highCount = item.checklist_items?.filter((check: any) => check.severity === 'high').length || 0;
     const firstItems = (item.checklist_items || []).slice(0, 2);
     return (
-      <BlurView intensity={100} tint={colors.bg === '#000000' ? 'dark' : 'light'} style={[styles.taskCard, { borderColor: colors.border, borderRadius: 20, overflow: 'hidden', marginBottom: 12 }]}>
-        <TouchableOpacity style={{ backgroundColor: colors.card, padding: 16 }} onPress={() => router.push(`/(app)/task/${item.id}`)}>
+      <BlurView
+        intensity={100}
+        tint={colors.bg === '#000000' ? 'dark' : 'light'}
+        style={[
+          styles.taskCard,
+          {
+            borderColor: isCompleted(item.status) ? '#8bd6c8' : '#6fbfb1',
+            backgroundColor: colors.card,
+          },
+        ]}
+      >
+        <TouchableOpacity style={[styles.taskPressArea, { backgroundColor: colors.card }]} onPress={() => router.push(`/(app)/task/${item.id}`)}>
+          <View style={[styles.taskAccent, { backgroundColor: isCompleted(item.status) ? colors.primary : colors.amber }]} />
           <View style={styles.taskHeader}>
             <Text style={[styles.taskTitle, { color: colors.text }]} numberOfLines={2}>{item.title}</Text>
             <Text style={[styles.badge, { color: isCompleted(item.status) ? colors.primary : colors.amber, backgroundColor: isCompleted(item.status) ? colors.primarySoft : '#fef3c7' }]}>
@@ -132,7 +143,7 @@ export default function ClientHomeScreen() {
           <Text style={[styles.taskDesc, { color: colors.subtext }]} numberOfLines={2}>{item.description || '管理员下发的现场风险排查任务'}</Text>
           <View style={styles.riskList}>
             {firstItems.map((check: any, index: number) => (
-              <View key={check.id || index} style={[styles.riskPreview, { backgroundColor: colors.cardSoft }]}>
+              <View key={check.id || index} style={[styles.riskPreview, { backgroundColor: colors.cardSoft, borderColor: colors.border }]}>
                 <Text style={[styles.riskPreviewTitle, { color: colors.text }]} numberOfLines={2}>{index + 1}. {check.risk_description || '待排查风险'}</Text>
                 <Text style={[styles.riskPreviewSub, { color: colors.subtext }]} numberOfLines={2}>排查：{check.inspection_points || check.measure || '进入详情查看排查要求'}</Text>
               </View>
@@ -205,22 +216,25 @@ const styles = StyleSheet.create({
   datePill: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, alignItems: 'center' },
   dateLabel: { fontSize: 13, fontWeight: '900' },
   dateCount: { marginTop: 1, fontSize: 10, fontWeight: '700' },
-  taskCard: { 
-    borderWidth: 1, 
-    borderRadius: 20, 
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 4,
+  taskCard: {
+    borderWidth: 1.5,
+    borderRadius: 22,
+    marginBottom: 14,
+    overflow: 'hidden',
+    shadowColor: '#0f766e',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.16,
+    shadowRadius: 16,
+    elevation: 6,
   },
+  taskPressArea: { padding: 16, borderRadius: 22 },
+  taskAccent: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 5 },
   taskHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 },
   taskTitle: { flex: 1, fontSize: 16, fontWeight: '900' },
   badge: { overflow: 'hidden', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4, fontSize: 12, fontWeight: '800' },
   taskDesc: { marginTop: 8, fontSize: 13, lineHeight: 20 },
   riskList: { marginTop: 12, gap: 8 },
-  riskPreview: { borderRadius: 14, padding: 10 },
+  riskPreview: { borderWidth: 1, borderRadius: 14, padding: 10 },
   riskPreviewTitle: { fontSize: 13, fontWeight: '900', lineHeight: 18 },
   riskPreviewSub: { marginTop: 4, fontSize: 12, lineHeight: 17 },
   metaRow: { marginTop: 12, flexDirection: 'row', justifyContent: 'space-between' },

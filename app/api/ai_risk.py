@@ -45,6 +45,29 @@ def _remaining_percent(permit: WorkPermit, now: datetime) -> float:
     return remaining_seconds / total_seconds * 100
 
 
+def _permit_field(permit, field: str) -> str:
+    if isinstance(permit, dict):
+        return str(permit.get(field) or "").strip()
+    return str(getattr(permit, field, "") or "").strip()
+
+
+def _permit_scope_text(permit) -> str:
+    return _permit_field(permit, "description")
+
+
+def _normalize_scope(text: str) -> str:
+    return "".join(char for char in str(text or "").lower() if char.isalnum())
+
+
+def _is_same_work_scope(new_permit, existing_permit: WorkPermit) -> bool:
+    """Only reuse permits for the same work point, not merely the same permit type."""
+    new_scope = _normalize_scope(_permit_scope_text(new_permit))
+    existing_scope = _normalize_scope(existing_permit.description or "")
+    if len(new_scope) < 6 or len(existing_scope) < 6:
+        return False
+    return new_scope in existing_scope or existing_scope in new_scope
+
+
 def _filter_permits_by_area_validity(
     db: Session,
     *,
@@ -81,42 +104,50 @@ def _filter_permits_by_area_validity(
         .all()
     )
 
-    active_by_type: dict[PermitType, WorkPermit] = {}
-    warning_by_type: dict[PermitType, WorkPermit] = {}
-    for existing in existing_permits:
-        remaining = _remaining_percent(existing, now)
-        if remaining <= 0:
-            continue
-        if remaining > WARNING_THRESHOLD_PERCENT:
-            current = active_by_type.get(existing.type)
-            if not current or (existing.end_time and current.end_time and existing.end_time > current.end_time):
-                active_by_type[existing.type] = existing
-        else:
-            current = warning_by_type.get(existing.type)
-            if not current or (existing.end_time and current.end_time and existing.end_time < current.end_time):
-                warning_by_type[existing.type] = existing
+    valid_existing = [
+        existing
+        for existing in existing_permits
+        if _remaining_percent(existing, now) > 0
+    ]
+
+    def best_matching_existing(permit, *, require_active: bool) -> WorkPermit | None:
+        permit_type = PermitType(permit_value(permit))
+        matches = [
+            existing
+            for existing in valid_existing
+            if existing.type == permit_type
+            and _is_same_work_scope(permit, existing)
+            and (
+                _remaining_percent(existing, now) > WARNING_THRESHOLD_PERCENT
+                if require_active
+                else _remaining_percent(existing, now) <= WARNING_THRESHOLD_PERCENT
+            )
+        ]
+        if not matches:
+            return None
+        return max(matches, key=lambda item: item.end_time or datetime.min)
 
     filtered = []
     suppressed: list[dict] = []
     for permit in permits:
-        permit_type = PermitType(permit_value(permit))
-        active_permit = active_by_type.get(permit_type)
+        active_permit = best_matching_existing(permit, require_active=True)
         if active_permit:
             suppressed.append(
                 {
                     "type": permit_value(permit),
                     "existing_permit_id": active_permit.id,
+                    "existing_description": active_permit.description,
                     "end_time": active_permit.end_time.isoformat() if active_permit.end_time else None,
                     "remaining_percent": round(_remaining_percent(active_permit, now), 1),
                 }
             )
             continue
 
-        warning_permit = warning_by_type.get(permit_type)
+        warning_permit = best_matching_existing(permit, require_active=False)
         if warning_permit:
             append_reason(
                 permit,
-                f"同区域已有该类票证但剩余有效期不超过{WARNING_THRESHOLD_PERCENT}%，需要继续提醒续票或重新办票。",
+                f"同一作业点已有该类票证但剩余有效期不超过{WARNING_THRESHOLD_PERCENT}%，需要继续提醒续票或重新办票。",
             )
         filtered.append(permit)
 
