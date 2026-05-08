@@ -127,13 +127,28 @@ NEGATIVE_ANSWERS = {"没有", "无", "不是", "不存在", "不用", "未使用
 
 
 def _normalize_ai_content(content: str) -> str:
-    text = content.strip()
+    text = str(content or "").strip()
     if text.startswith("```json"):
         text = text[7:]
     elif text.startswith("```"):
         text = text[3:]
     if text.endswith("```"):
         text = text[:-3]
+
+    text = re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.IGNORECASE).strip()
+    if "</think>" in text:
+        text = text.split("</think>")[-1].strip()
+
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        candidate = text[start : end + 1].strip()
+        try:
+            json.loads(candidate)
+            return candidate
+        except json.JSONDecodeError:
+            pass
+
     return text.strip()
 
 

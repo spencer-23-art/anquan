@@ -39,10 +39,33 @@ const SUGGESTIONS = [
   "污水池内部检修，2 人进入，现场潮湿，需要临时用电和气体检测。",
 ];
 
+function stripThinkArtifacts(content) {
+  const text = String(content || "").trim();
+  if (!text) {
+    return "";
+  }
+
+  const withoutThinkBlock = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+  if (withoutThinkBlock.includes("</think>")) {
+    return withoutThinkBlock.split("</think>").pop().trim();
+  }
+  return withoutThinkBlock;
+}
+
 function safeParseChecklist(content) {
+  const cleaned = stripThinkArtifacts(content);
   try {
-    return JSON.parse(content);
+    return JSON.parse(cleaned);
   } catch {
+    const start = cleaned.indexOf("{");
+    const end = cleaned.lastIndexOf("}");
+    if (start !== -1 && end > start) {
+      try {
+        return JSON.parse(cleaned.slice(start, end + 1));
+      } catch {
+        return null;
+      }
+    }
     return null;
   }
 }
@@ -404,7 +427,7 @@ export default function AIChatTask() {
                 ? ` 同区域已有 ${parsed.suppressed_permits.length} 张有效票证，剩余有效期超过 20%，已自动不再重复提醒。`
                 : ""
             }`
-          : parsed?.content || data.content;
+          : parsed?.content || stripThinkArtifacts(data.content);
 
       appendMessage({
         role: "assistant",

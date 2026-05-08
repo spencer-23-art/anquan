@@ -49,6 +49,8 @@ export default function FinesScreen() {
   const [form, setForm] = useState(defaultForm);
   const [summaryInput, setSummaryInput] = useState('');
   const [photo, setPhoto] = useState<{ uri: string } | null>(null);
+  const selectedArea = areas.find((item) => String(item.id) === String(form.area_id)) || null;
+  const selectedProjectName = selectedArea?.name || form.project_name || '';
 
   const loadData = async () => {
     setLoading(true);
@@ -59,11 +61,14 @@ export default function FinesScreen() {
         api.get('areas'),
       ]);
       const areaList = areaRes.data || [];
+      const nextAreaId = form.area_id || String(areaList[0]?.id || '');
+      const nextArea = areaList.find((item: any) => String(item.id) === String(nextAreaId)) || null;
       setItems(historyRes.data || []);
       setAreas(areaList);
       setForm((cur) => ({
         ...cur,
-        area_id: cur.area_id || String(areaList[0]?.id || ''),
+        area_id: nextAreaId,
+        project_name: nextArea?.name || cur.project_name || '',
       }));
     } catch (err: any) {
       setMessage(err.response?.data?.detail || '罚单加载失败');
@@ -75,6 +80,15 @@ export default function FinesScreen() {
   useEffect(() => {
     loadData();
   }, []);
+
+  const handleAreaChange = (areaId: string) => {
+    const nextArea = areas.find((item) => String(item.id) === String(areaId)) || null;
+    setForm((cur) => ({
+      ...cur,
+      area_id: areaId,
+      project_name: nextArea?.name || '',
+    }));
+  };
 
   const openPhotoMenu = () => {
     Alert.alert('添加照片', '请选择照片来源', [
@@ -118,7 +132,7 @@ export default function FinesScreen() {
     try {
       const { data } = await api.post('fines/generate-description', {
         input: summaryInput,
-        project_name: form.project_name,
+        project_name: selectedProjectName,
         team_name: form.team_name,
         location: form.location,
         discovery_date: form.discovery_date,
@@ -133,7 +147,7 @@ export default function FinesScreen() {
   };
 
   const createFine = async () => {
-    if (!form.project_name || !form.team_name || !form.location || !form.amount || !form.description) {
+    if (!selectedProjectName || !form.team_name || !form.location || !form.amount || !form.description) {
       Alert.alert('请填写完整', '项目名称、班组、部位、金额和描述为必填项');
       return;
     }
@@ -141,7 +155,7 @@ export default function FinesScreen() {
     setMessage('');
     try {
       const data = new FormData();
-      Object.entries(form).forEach(([key, value]) => {
+      Object.entries({ ...form, project_name: selectedProjectName }).forEach(([key, value]) => {
         if (value !== '') data.append(key, value as string);
       });
       if (photo?.uri) {
@@ -153,7 +167,7 @@ export default function FinesScreen() {
       }
       await api.post('fines', data, { headers: { 'Content-Type': 'multipart/form-data' } });
       setActiveTab('history');
-      setForm((cur) => ({ ...defaultForm, area_id: cur.area_id, project_name: cur.project_name }));
+      setForm((cur) => ({ ...defaultForm, area_id: cur.area_id, project_name: selectedProjectName }));
       setSummaryInput('');
       setPhoto(null);
       await loadData();
@@ -253,7 +267,7 @@ export default function FinesScreen() {
               {/* 区域选择 */}
               {areas.length > 0 && (
                 <>
-                  <Text style={[styles.fieldLabel, { color: colors.text }]}>所属区域</Text>
+                  <Text style={[styles.fieldLabel, { color: colors.text }]}>项目名称</Text>
                   <ScrollView
                     horizontal
                     showsHorizontalScrollIndicator={false}
@@ -272,7 +286,7 @@ export default function FinesScreen() {
                               form.area_id === String(area.id) ? colors.primarySoft : colors.cardSoft,
                           },
                         ]}
-                        onPress={() => setForm({ ...form, area_id: String(area.id) })}
+                        onPress={() => handleAreaChange(String(area.id))}
                       >
                         <Text
                           style={{
@@ -291,15 +305,6 @@ export default function FinesScreen() {
               )}
 
               {/* 基础信息 */}
-              <Text style={[styles.fieldLabel, { color: colors.text }]}>项目名称</Text>
-              <TextInput
-                style={[styles.input, { color: colors.text, borderColor: colors.border }]}
-                placeholder="输入项目名称"
-                placeholderTextColor={colors.subtext}
-                value={form.project_name}
-                onChangeText={(v) => setForm({ ...form, project_name: v })}
-              />
-
               <Text style={[styles.fieldLabel, { color: colors.text }]}>受罚班组 / 责任人</Text>
               <TextInput
                 style={[styles.input, { color: colors.text, borderColor: colors.border }]}

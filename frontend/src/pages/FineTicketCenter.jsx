@@ -83,6 +83,11 @@ export default function FineTicketCenter() {
   }, [ticketType]);
 
   const areaOptions = useMemo(() => buildAreaOptions(areas), [areas]);
+  const selectedArea = useMemo(
+    () => areaOptions.find((area) => String(area.id) === String(form.area_id)) || null,
+    [areaOptions, form.area_id],
+  );
+  const selectedProjectName = selectedArea?.name || form.project_name || "";
 
   useEffect(() => {
     loadNextNumber(ticketType);
@@ -97,8 +102,15 @@ export default function FineTicketCenter() {
     try {
       const { data } = await api.get("/areas");
       const areaList = data || [];
+      const options = buildAreaOptions(areaList);
+      const nextAreaId = form.area_id || String(options[0]?.id || "");
+      const nextArea = options.find((area) => String(area.id) === String(nextAreaId));
       setAreas(areaList);
-      setForm((prev) => ({ ...prev, area_id: prev.area_id || String(areaList[0]?.id || "") }));
+      setForm((prev) => ({
+        ...prev,
+        area_id: nextAreaId,
+        project_name: nextArea?.name || prev.project_name || "",
+      }));
     } catch {
       setMessage("鍖哄煙鍔犺浇澶辫触");
       setMessageType("error");
@@ -129,6 +141,15 @@ export default function FineTicketCenter() {
 
   const updateForm = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleAreaChange = (value) => {
+    const nextArea = areaOptions.find((area) => String(area.id) === String(value));
+    setForm((prev) => ({
+      ...prev,
+      area_id: value,
+      project_name: nextArea?.name || "",
+    }));
   };
 
   const addPhotos = async (files) => {
@@ -169,7 +190,7 @@ export default function FineTicketCenter() {
     try {
       const { data } = await api.post("/fines/generate-description", {
         input: summaryInput,
-        project_name: form.project_name,
+        project_name: selectedProjectName,
         team_name: form.team_name,
         location: form.location,
         discovery_date: form.discovery_date,
@@ -187,7 +208,7 @@ export default function FineTicketCenter() {
   };
 
   const handleCreateTicket = async () => {
-    if (!form.project_name || !form.team_name || !form.location || !form.amount || !form.description) {
+    if (!selectedProjectName || !form.team_name || !form.location || !form.amount || !form.description) {
       setMessage("请把项目名称、班组、部位、金额和正式描述填写完整");
       setMessageType("error");
       return;
@@ -202,7 +223,7 @@ export default function FineTicketCenter() {
       if (form.area_id) {
         payload.append("area_id", form.area_id);
       }
-      payload.append("project_name", form.project_name);
+      payload.append("project_name", selectedProjectName);
       payload.append("team_name", form.team_name);
       payload.append("location", form.location);
       payload.append("discovery_date", form.discovery_date);
@@ -219,7 +240,7 @@ export default function FineTicketCenter() {
       setForm((prev) => ({
         ...defaultForm,
         area_id: prev.area_id,
-        project_name: prev.project_name,
+        project_name: selectedProjectName,
         discovery_date: new Date().toISOString().split("T")[0],
       }));
       photos.forEach((item) => URL.revokeObjectURL(item.preview));
@@ -300,26 +321,17 @@ export default function FineTicketCenter() {
 
           <div className="grid gap-4 md:grid-cols-2">
             <label className="space-y-2">
-              <span className="text-sm font-medium text-slate-700">????</span>
+              <span className="text-sm font-medium text-slate-700">项目名称</span>
               <select
                 className="w-full rounded-2xl border border-slate-300 px-4 py-3"
                 value={form.area_id}
-                onChange={(event) => updateForm("area_id", event.target.value)}
+                onChange={(event) => handleAreaChange(event.target.value)}
               >
-                <option value="">?????</option>
+                <option value="">请选择项目</option>
                 {areaOptions.map((area) => (
                   <option key={area.id} value={area.id}>{`${"  ".repeat(area.depth)}${area.name}`}</option>
                 ))}
               </select>
-            </label>
-            <label className="space-y-2">
-              <span className="text-sm font-medium text-slate-700">项目名称</span>
-              <input
-                className="w-full rounded-2xl border border-slate-300 px-4 py-3"
-                value={form.project_name}
-                onChange={(event) => updateForm("project_name", event.target.value)}
-                placeholder="输入项目名称"
-              />
             </label>
             <label className="space-y-2">
               <span className="text-sm font-medium text-slate-700">受罚班组 / 责任人</span>
