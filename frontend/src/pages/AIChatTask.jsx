@@ -310,6 +310,14 @@ export default function AIChatTask() {
     return draftTask.permits.filter((_, index) => selectedPermitIndexes.includes(index));
   }, [draftTask, selectedPermitIndexes]);
 
+  const togglePermitSelection = useCallback((index) => {
+    setSelectedPermitIndexes((current) =>
+      current.includes(index)
+        ? current.filter((item) => item !== index)
+        : [...current, index].sort((a, b) => a - b),
+    );
+  }, []);
+
   const enrichPermits = useCallback(
     (permits, title) =>
       (permits || []).map((permit) => ({
@@ -783,6 +791,15 @@ export default function AIChatTask() {
                       return (
                         <div
                           key={`${permit.type}-${index}`}
+                          onClick={() => togglePermitSelection(index)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              togglePermitSelection(index);
+                            }
+                          }}
+                          role="button"
+                          tabIndex={0}
                           className={`w-full rounded-3xl border px-4 py-4 text-left transition ${
                             selected ? "border-amber-300 bg-amber-50 shadow-sm" : "border-slate-200 bg-white"
                           }`}
@@ -790,13 +807,10 @@ export default function AIChatTask() {
                           <div className="flex items-start gap-3">
                             <button
                               type="button"
-                              onClick={() =>
-                                setSelectedPermitIndexes((current) =>
-                                  current.includes(index)
-                                    ? current.filter((item) => item !== index)
-                                    : [...current, index].sort((a, b) => a - b)
-                                )
-                              }
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                togglePermitSelection(index);
+                              }}
                               className="shrink-0"
                               title={selected ? "取消下发该票证" : "选择下发该票证"}
                             >

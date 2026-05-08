@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -6,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, require_admin
 from app.models.ai_analysis_history import AIAnalysisHistory
+from app.models.area import Area
 from app.models.system_config import SystemConfig
 from app.models.task import ChecklistItem, Severity, Task
 from app.models.user import User
@@ -59,13 +61,137 @@ def _normalize_scope(text: str) -> str:
     return "".join(char for char in str(text or "").lower() if char.isalnum())
 
 
+PERMIT_FAMILY_RANKS: dict[str, dict[PermitType, int]] = {
+    "height": {
+        PermitType.HEIGHT_LEVEL1: 1,
+        PermitType.HEIGHT_LEVEL2: 2,
+        PermitType.HEIGHT_LEVEL3: 3,
+        PermitType.HEIGHT_SPECIAL: 4,
+    },
+    "hot_work": {
+        PermitType.HOT_WORK_LEVEL3: 1,
+        PermitType.HOT_WORK_LEVEL2: 2,
+        PermitType.HOT_WORK_LEVEL1: 3,
+    },
+}
+
+PERMIT_LABELS: dict[PermitType, str] = {
+    PermitType.CONFINED_SPACE: "受限空间作业票",
+    PermitType.HEIGHT_LEVEL1: "一级高处作业票",
+    PermitType.HEIGHT_LEVEL2: "二级高处作业票",
+    PermitType.HEIGHT_LEVEL3: "三级高处作业票",
+    PermitType.HEIGHT_SPECIAL: "特级高处作业票",
+    PermitType.HOT_WORK_LEVEL1: "一级动火作业票",
+    PermitType.HOT_WORK_LEVEL2: "二级动火作业票",
+    PermitType.HOT_WORK_LEVEL3: "普通动火作业票",
+    PermitType.LIFTING: "吊装作业票",
+    PermitType.EXCAVATION: "动土作业票",
+    PermitType.ELECTRICAL: "临时用电作业票",
+    PermitType.OTHER: "其他作业票",
+}
+
+
+def _permit_type_enum(permit) -> PermitType | None:
+    value = permit.get("type") if isinstance(permit, dict) else getattr(permit, "type", None)
+    if not value:
+        return None
+    return value if isinstance(value, PermitType) else PermitType(value)
+
+
+def _permit_family(permit_type: PermitType | None) -> str:
+    if permit_type in PERMIT_FAMILY_RANKS["height"]:
+        return "height"
+    if permit_type in PERMIT_FAMILY_RANKS["hot_work"]:
+        return "hot_work"
+    return permit_type.value if permit_type else ""
+
+
+def _permit_rank(permit_type: PermitType | None) -> int:
+    if not permit_type:
+        return 0
+    family = _permit_family(permit_type)
+    return PERMIT_FAMILY_RANKS.get(family, {}).get(permit_type, 1)
+
+
+def _permit_covers(existing_type: PermitType | None, requested_type: PermitType | None) -> bool:
+    if not existing_type or not requested_type:
+        return False
+    existing_family = _permit_family(existing_type)
+    requested_family = _permit_family(requested_type)
+    if existing_family != requested_family:
+        return False
+    return _permit_rank(existing_type) >= _permit_rank(requested_type)
+
+
+def _permit_label(permit_type: PermitType | None) -> str:
+    if not permit_type:
+        return ""
+    return PERMIT_LABELS.get(permit_type, permit_type.value)
+
+
 def _is_same_work_scope(new_permit, existing_permit: WorkPermit) -> bool:
     """Only reuse permits for the same work point, not merely the same permit type."""
-    new_scope = _normalize_scope(_permit_scope_text(new_permit))
-    existing_scope = _normalize_scope(existing_permit.description or "")
+    raw_new_scope = re.sub(r"\s+", "", _permit_scope_text(new_permit))
+    raw_existing_scope = re.sub(r"\s+", "", _permit_scope_text(existing_permit))
+    if raw_new_scope and raw_existing_scope:
+        if raw_new_scope == raw_existing_scope and len(raw_new_scope) >= 4:
+            return True
+        if len(raw_new_scope) >= 8 and len(raw_existing_scope) >= 8:
+            if raw_new_scope in raw_existing_scope or raw_existing_scope in raw_new_scope:
+                return True
+
+    new_scope = _normalize_scope(raw_new_scope)
+    existing_scope = _normalize_scope(raw_existing_scope)
     if len(new_scope) < 6 or len(existing_scope) < 6:
         return False
     return new_scope in existing_scope or existing_scope in new_scope
+
+
+def _collapse_requested_permits(permits: list) -> list:
+    collapsed: list = []
+    for permit in permits:
+        permit_type = _permit_type_enum(permit)
+        if not permit_type:
+            collapsed.append(permit)
+            continue
+
+        replaced = False
+        for index, existing in enumerate(collapsed):
+            existing_type = _permit_type_enum(existing)
+            if (
+                existing_type
+                and _permit_family(existing_type) == _permit_family(permit_type)
+                and _is_same_work_scope(permit, existing)
+            ):
+                if _permit_rank(permit_type) > _permit_rank(existing_type):
+                    collapsed[index] = permit
+                replaced = True
+                break
+        if not replaced:
+            collapsed.append(permit)
+    return collapsed
+
+
+def _ensure_permit_descriptions(permits: list, *, title: str, area_name: str | None) -> list:
+    enriched: list = []
+    for permit in permits:
+        permit_type = _permit_type_enum(permit)
+        if isinstance(permit, dict):
+            next_permit = dict(permit)
+            if not str(next_permit.get("description") or "").strip():
+                next_permit["description"] = "".join(
+                    part for part in [area_name or "", title or "", _permit_label(permit_type)] if part
+                )
+            enriched.append(next_permit)
+        else:
+            if not _permit_field(permit, "description"):
+                setattr(
+                    permit,
+                    "description",
+                    "".join(part for part in [area_name or "", title or "", _permit_label(permit_type)] if part),
+                )
+            enriched.append(permit)
+    return enriched
 
 
 def _filter_permits_by_area_validity(
@@ -74,30 +200,36 @@ def _filter_permits_by_area_validity(
     area_id: int | None,
     permits: list,
 ) -> tuple[list, list[dict]]:
-    if not area_id or not permits:
+    if not permits:
         return permits, []
 
+    permits = _collapse_requested_permits(permits)
+    if not area_id:
+        return permits, []
     now = local_now()
-    def permit_value(permit) -> str | None:
-        if isinstance(permit, dict):
-            return permit.get("type")
-        return getattr(permit, "type", None)
-
     def append_reason(permit, extra: str) -> None:
         if isinstance(permit, dict):
             permit["reason"] = f"{permit.get('reason') or ''} {extra}".strip()
         elif hasattr(permit, "reason"):
             permit.reason = f"{permit.reason or ''} {extra}".strip()
 
-    permit_types = [PermitType(value) for permit in permits if (value := permit_value(permit))]
+    requested_types = [_permit_type_enum(permit) for permit in permits]
+    permit_types = [permit_type for permit_type in requested_types if permit_type]
     if not permit_types:
         return permits, []
+
+    query_types = set(permit_types)
+    permit_families = {_permit_family(permit_type) for permit_type in permit_types}
+    if "height" in permit_families:
+        query_types.update(PERMIT_FAMILY_RANKS["height"].keys())
+    if "hot_work" in permit_families:
+        query_types.update(PERMIT_FAMILY_RANKS["hot_work"].keys())
 
     existing_permits = (
         db.query(WorkPermit)
         .filter(
             WorkPermit.area_id == area_id,
-            WorkPermit.type.in_(permit_types),
+            WorkPermit.type.in_(query_types),
             WorkPermit.photo_url.isnot(None),
             WorkPermit.status.in_([PermitStatus.ACTIVE, PermitStatus.WARNING]),
         )
@@ -111,11 +243,13 @@ def _filter_permits_by_area_validity(
     ]
 
     def best_matching_existing(permit, *, require_active: bool) -> WorkPermit | None:
-        permit_type = PermitType(permit_value(permit))
+        permit_type = _permit_type_enum(permit)
+        if not permit_type:
+            return None
         matches = [
             existing
             for existing in valid_existing
-            if existing.type == permit_type
+            if _permit_covers(existing.type, permit_type)
             and _is_same_work_scope(permit, existing)
             and (
                 _remaining_percent(existing, now) > WARNING_THRESHOLD_PERCENT
@@ -134,8 +268,9 @@ def _filter_permits_by_area_validity(
         if active_permit:
             suppressed.append(
                 {
-                    "type": permit_value(permit),
+                    "type": permit_type.value if (permit_type := _permit_type_enum(permit)) else None,
                     "existing_permit_id": active_permit.id,
+                    "existing_type": active_permit.type.value,
                     "existing_description": active_permit.description,
                     "end_time": active_permit.end_time.isoformat() if active_permit.end_time else None,
                     "remaining_percent": round(_remaining_percent(active_permit, now), 1),
@@ -162,10 +297,15 @@ def _history_payload_for_response(db: Session, history: AIAnalysisHistory) -> di
 
     payload["type"] = payload.get("type") or "checklist"
     payload["summary"] = payload.get("summary") or history.title
+    permits = _ensure_permit_descriptions(
+        [dict(permit) for permit in payload.get("permits", [])],
+        title=payload["summary"],
+        area_name=history.area.name if history.area else None,
+    )
     filtered_permits, suppressed_permits = _filter_permits_by_area_validity(
         db,
         area_id=history.area_id,
-        permits=[dict(permit) for permit in payload.get("permits", [])],
+        permits=permits,
     )
     payload["permits"] = filtered_permits
     payload["suppressed_permits"] = suppressed_permits
@@ -339,6 +479,7 @@ def ai_chat(
         if response_type == "checklist" and data.area_id:
             ensure_area_access(db, current_user, data.area_id)
             parsed = json.loads(content)
+            area = db.query(Area).filter(Area.id == data.area_id).first()
             _save_analysis_history(
                 db,
                 session_id=session_id,
@@ -346,10 +487,15 @@ def ai_chat(
                 creator_id=current_user.id,
                 payload=parsed,
             )
+            permits = _ensure_permit_descriptions(
+                parsed.get("permits", []),
+                title=str(parsed.get("summary") or "").strip(),
+                area_name=area.name if area else None,
+            )
             filtered_permits, suppressed_permits = _filter_permits_by_area_validity(
                 db,
                 area_id=data.area_id,
-                permits=parsed.get("permits", []),
+                permits=permits,
             )
             parsed["permits"] = filtered_permits
             if suppressed_permits:
