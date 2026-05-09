@@ -222,6 +222,7 @@ export default function FinesScreen() {
                 <Text style={[styles.meta, { color: colors.subtext }]}>
                   类型：{item.ticket_type === 'safety' ? '安全罚单' : '质量罚单'}
                 </Text>
+                <Text style={[styles.meta, { color: colors.subtext }]}>开具人：{item.creator_name || '-'}</Text>
                 <Text style={[styles.meta, { color: colors.subtext }]}>班组：{item.team_name || '-'}</Text>
                 <Text style={[styles.meta, { color: colors.subtext }]}>部位：{item.location || '-'}</Text>
                 <Text style={[styles.desc, { color: colors.text }]} numberOfLines={4}>

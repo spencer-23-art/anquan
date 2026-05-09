@@ -527,6 +527,7 @@ export default function FineTicketCenter() {
                       <div className="mt-1 text-xs text-slate-500">
                         {item.project_name}{item.area_name ? ` 路 ${item.area_name}` : ""}
                       </div>
+                      <div className="mt-1 text-xs text-slate-500">开具人：{item.creator_name || "-"}</div>
                     </div>
                     <button
                       type="button"
