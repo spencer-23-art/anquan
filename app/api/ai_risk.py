@@ -463,6 +463,22 @@ def list_ai_analysis_history(
     return [_history_out(db, history) for history in histories]
 
 
+@router.delete("/history/{history_id}")
+def delete_ai_analysis_history(
+    history_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    history = db.query(AIAnalysisHistory).filter(AIAnalysisHistory.id == history_id).first()
+    if not history:
+        raise HTTPException(status_code=404, detail="Analysis history not found")
+
+    ensure_area_access(db, current_user, history.area_id)
+    db.delete(history)
+    db.commit()
+    return {"message": "Analysis history deleted"}
+
+
 @router.post("/chat", response_model=AIChatResponse)
 def ai_chat(
     data: AIChatMessage,

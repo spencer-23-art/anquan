@@ -8,6 +8,7 @@ import {
   RotateCcw,
   ShieldCheck,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import api from "../lib/axios";
 import { useAIChatStore } from "../stores/aiChatStore";
@@ -185,6 +186,7 @@ export default function AIChatTask() {
   const [pageMessage, setPageMessage] = useState("");
   const [analysisHistory, setAnalysisHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [deletingHistoryId, setDeletingHistoryId] = useState(null);
   const [selectedRiskIndexes, setSelectedRiskIndexes] = useState([]);
   const [selectedPermitIndexes, setSelectedPermitIndexes] = useState([]);
   const [createForm, setCreateForm] = useState({
@@ -401,6 +403,24 @@ export default function AIChatTask() {
       setPageMessage(extractErrorMessage(err, "历史记录重新下发失败，请检查区域和负责人后重试。"));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const deleteHistory = async (history) => {
+    if (!window.confirm("确定删除这条 AI 分析历史吗？删除后不会影响已经下发的任务。")) {
+      return;
+    }
+
+    setDeletingHistoryId(history.id);
+    setPageMessage("");
+    try {
+      await api.delete(`/ai/history/${history.id}`);
+      setAnalysisHistory((current) => current.filter((item) => item.id !== history.id));
+      setPageMessage("分析历史已删除。");
+    } catch (err) {
+      setPageMessage(extractErrorMessage(err, "分析历史删除失败，请稍后重试。"));
+    } finally {
+      setDeletingHistoryId(null);
     }
   };
 
@@ -696,7 +716,7 @@ export default function AIChatTask() {
                         <span className="text-emerald-700">已过滤有效票证 {history.payload.suppressed_permits.length} 张</span>
                       ) : null}
                     </div>
-                    <div className="mt-3 grid grid-cols-2 gap-2">
+                    <div className="mt-3 grid grid-cols-3 gap-2">
                       <button
                         type="button"
                         onClick={() => applyHistory(history)}
@@ -711,6 +731,19 @@ export default function AIChatTask() {
                         className="rounded-2xl bg-emerald-600 px-3 py-2 text-xs font-medium text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-emerald-300"
                       >
                         重新下发
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteHistory(history)}
+                        disabled={deletingHistoryId === history.id}
+                        className="inline-flex items-center justify-center gap-1 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {deletingHistoryId === history.id ? (
+                          <Loader2 size={13} className="animate-spin" />
+                        ) : (
+                          <Trash2 size={13} />
+                        )}
+                        删除
                       </button>
                     </div>
                   </div>
