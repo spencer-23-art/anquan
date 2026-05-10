@@ -175,8 +175,12 @@ export default function PermitMonitor() {
 
   const handleManualCreate = async (event) => {
     event.preventDefault();
-    setSaving(true);
     setMessage("");
+    if (!form.area_id) {
+      setMessage("请先选择作业许可所属区域，后续 AI 比对会按这个区域匹配。");
+      return;
+    }
+    setSaving(true);
     try {
       const payload = new FormData();
       payload.append("type", form.type);

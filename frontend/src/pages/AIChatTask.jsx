@@ -120,6 +120,10 @@ function permitReason(permit) {
   return permit?.reason?.trim() || `必须办理 ${permitLabel(permit?.type)}`;
 }
 
+function permitExistingMatch(permit) {
+  return permit?.existing_permit_match || null;
+}
+
 function permitWorkDescription({ permit, title, areaName }) {
   if (permit?.description?.trim()) {
     return permit.description.trim();
@@ -284,7 +288,11 @@ export default function AIChatTask() {
     if (!draftTask?.permits?.length) {
       setSelectedPermitIndexes([]);
     } else {
-      setSelectedPermitIndexes(draftTask.permits.map((_, index) => index));
+      setSelectedPermitIndexes(
+        draftTask.permits
+          .map((permit, index) => (permit?.covered_by_existing_permit ? null : index))
+          .filter((index) => index !== null),
+      );
     }
   }, [draftTask]);
 
@@ -463,17 +471,6 @@ export default function AIChatTask() {
       });
 
       if (parsed?.type === "checklist") {
-        const uniquePermits = [];
-        const seenPermitTypes = new Set();
-
-        for (const permit of parsed.permits || []) {
-          if (!permit?.type || seenPermitTypes.has(permit.type)) {
-            continue;
-          }
-          seenPermitTypes.add(permit.type);
-          uniquePermits.push(permit);
-        }
-
         setDraftTask({
           session_id: data.session_id,
           title: normalizeText(parsed.summary, "AI 生成作业任务"),
@@ -484,7 +481,7 @@ export default function AIChatTask() {
             photo_requirements: normalizeText(item.photo_requirements, ""),
             measure: normalizeText(item.measure, ""),
           })),
-          permits: enrichPermits(uniquePermits, normalizeText(parsed.summary, "AI 生成作业任务")),
+          permits: enrichPermits(parsed.permits || [], normalizeText(parsed.summary, "AI 生成作业任务")),
           suppressed_permits: parsed.suppressed_permits || [],
         });
         await loadHistory(createForm.area_id);
@@ -821,6 +818,7 @@ export default function AIChatTask() {
                   <div className="space-y-3">
                     {draftTask.permits.map((permit, index) => {
                       const selected = selectedPermitIndexes.includes(index);
+                      const existingMatch = permitExistingMatch(permit);
                       return (
                         <div
                           key={`${permit.type}-${index}`}
@@ -856,6 +854,11 @@ export default function AIChatTask() {
                                   <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">
                                     必须办票
                                   </span>
+                                  {existingMatch ? (
+                                    <span className="rounded-full bg-sky-100 px-2 py-1 text-xs font-medium text-sky-800">
+                                      许可池已有
+                                    </span>
+                                  ) : null}
                                   {selected ? (
                                     <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-800">
                                       已选中
@@ -864,6 +867,15 @@ export default function AIChatTask() {
                                 </div>
                               </div>
                               <div className="mt-2 text-xs leading-5 text-slate-700">{permitReason(permit)}</div>
+                              {existingMatch ? (
+                                <div className="mt-3 rounded-2xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs leading-5 text-sky-900">
+                                  许可池已匹配：{permitLabel(existingMatch.existing_type)}
+                                  {existingMatch.remaining_percent !== undefined
+                                    ? `，剩余有效期 ${existingMatch.remaining_percent}%`
+                                    : ""}
+                                  。本次默认不重复下发，需要重复办理时可手动选中。
+                                </div>
+                              ) : null}
                               {permit.description ? (
                                 <div className="mt-3 rounded-2xl border border-amber-200 bg-white/90 px-3 py-2 text-xs leading-5 text-slate-700">
                                   作业许可描述：{permit.description}

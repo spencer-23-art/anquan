@@ -1,5 +1,6 @@
 import json
 import re
+from difflib import SequenceMatcher
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -147,6 +148,130 @@ def _is_same_work_scope(new_permit, existing_permit: WorkPermit) -> bool:
     return new_scope in existing_scope or existing_scope in new_scope
 
 
+def _extract_json_object(content: str) -> dict | None:
+    text = str(content or "").strip()
+    if not text:
+        return None
+    text = re.sub(r"^```(?:json)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text)
+    try:
+        parsed = json.loads(text)
+        return parsed if isinstance(parsed, dict) else None
+    except json.JSONDecodeError:
+        pass
+
+    start = text.find("{")
+    end = text.rfind("}")
+    if start >= 0 and end > start:
+        try:
+            parsed = json.loads(text[start : end + 1])
+            return parsed if isinstance(parsed, dict) else None
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
+def _scope_similarity_hint(left: str, right: str) -> float:
+    left_scope = _normalize_scope(left)
+    right_scope = _normalize_scope(right)
+    if not left_scope or not right_scope:
+        return 0.0
+    return SequenceMatcher(None, left_scope, right_scope).ratio()
+
+
+def _ai_best_same_work_scope(
+    db: Session,
+    *,
+    requested_permit,
+    candidates: list[WorkPermit],
+) -> WorkPermit | None:
+    requested_scope = _permit_scope_text(requested_permit)
+    if not requested_scope or not candidates:
+        return None
+
+    scoped_candidates = [
+        candidate
+        for candidate in candidates
+        if _permit_scope_text(candidate)
+        and (
+            _scope_similarity_hint(requested_scope, _permit_scope_text(candidate)) >= 0.18
+            or _permit_type_enum(requested_permit) == candidate.type
+        )
+    ][:6]
+    if not scoped_candidates:
+        return None
+
+    candidate_payload = [
+        {
+            "id": candidate.id,
+            "type": candidate.type.value,
+            "description": candidate.description or "",
+            "end_time": candidate.end_time.isoformat() if candidate.end_time else None,
+        }
+        for candidate in scoped_candidates
+    ]
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "你是施工安全作业许可匹配助手。只判断待办票描述和许可池描述是否属于同一个项目、"
+                "同一个作业区域、同一个具体作业点/作业内容。不能仅因为票种相同、区域相同、文字相近就判定相同；"
+                "如果作业对象、楼栋、位置、高度、施工内容明显不同，必须判定为不同。"
+                "只输出 JSON，不要 markdown。格式："
+                "{\"matches\":[{\"id\":1,\"same_work\":true,\"confidence\":90,\"reason\":\"...\"}]}"
+            ),
+        },
+        {
+            "role": "user",
+            "content": json.dumps(
+                {
+                    "requested": {
+                        "type": _permit_type_enum(requested_permit).value
+                        if _permit_type_enum(requested_permit)
+                        else None,
+                        "description": requested_scope,
+                    },
+                    "candidates": candidate_payload,
+                },
+                ensure_ascii=False,
+            ),
+        },
+    ]
+    try:
+        _provider, payload = ai_config_service.request_chat_completion(
+            db,
+            messages=messages,
+            temperature=0,
+            max_tokens=800,
+            timeout=45,
+        )
+    except Exception:
+        return None
+
+    content = payload["choices"][0].get("message", {}).get("content", "")
+    parsed = _extract_json_object(content)
+    if not parsed or not isinstance(parsed.get("matches"), list):
+        return None
+
+    by_id = {candidate.id: candidate for candidate in scoped_candidates}
+    valid_matches = []
+    for item in parsed["matches"]:
+        if not isinstance(item, dict) or not item.get("same_work"):
+            continue
+        try:
+            candidate_id = int(item.get("id"))
+            confidence = float(item.get("confidence") or 0)
+        except (TypeError, ValueError):
+            continue
+        if confidence >= 80 and candidate_id in by_id:
+            valid_matches.append((confidence, by_id[candidate_id]))
+
+    if not valid_matches:
+        return None
+    valid_matches.sort(key=lambda item: (item[0], item[1].end_time or datetime.min), reverse=True)
+    return valid_matches[0][1]
+
+
 def _collapse_requested_permits(permits: list) -> list:
     collapsed: list = []
     for permit in permits:
@@ -192,6 +317,24 @@ def _ensure_permit_descriptions(permits: list, *, title: str, area_name: str | N
                 )
             enriched.append(permit)
     return enriched
+
+
+def _mark_existing_permit_match(permit, existing_permit: WorkPermit, now: datetime) -> None:
+    match_info = {
+        "matched": True,
+        "existing_permit_id": existing_permit.id,
+        "existing_type": existing_permit.type.value,
+        "existing_description": existing_permit.description,
+        "end_time": existing_permit.end_time.isoformat() if existing_permit.end_time else None,
+        "remaining_percent": round(_remaining_percent(existing_permit, now), 1),
+    }
+    if isinstance(permit, dict):
+        permit["covered_by_existing_permit"] = True
+        permit["existing_permit_match"] = match_info
+        return
+
+    setattr(permit, "covered_by_existing_permit", True)
+    setattr(permit, "existing_permit_match", match_info)
 
 
 def _filter_permits_by_area_validity(
@@ -246,19 +389,23 @@ def _filter_permits_by_area_validity(
         permit_type = _permit_type_enum(permit)
         if not permit_type:
             return None
-        matches = [
+        candidates = [
             existing
             for existing in valid_existing
             if _permit_covers(existing.type, permit_type)
-            and _is_same_work_scope(permit, existing)
             and (
                 _remaining_percent(existing, now) > WARNING_THRESHOLD_PERCENT
                 if require_active
                 else _remaining_percent(existing, now) <= WARNING_THRESHOLD_PERCENT
             )
         ]
+        matches = [
+            existing
+            for existing in candidates
+            if _is_same_work_scope(permit, existing)
+        ]
         if not matches:
-            return None
+            return _ai_best_same_work_scope(db, requested_permit=permit, candidates=candidates)
         return max(matches, key=lambda item: item.end_time or datetime.min)
 
     filtered = []
@@ -266,9 +413,11 @@ def _filter_permits_by_area_validity(
     for permit in permits:
         active_permit = best_matching_existing(permit, require_active=True)
         if active_permit:
+            permit_type = _permit_type_enum(permit)
+            _mark_existing_permit_match(permit, active_permit, now)
             suppressed.append(
                 {
-                    "type": permit_type.value if (permit_type := _permit_type_enum(permit)) else None,
+                    "type": permit_type.value if permit_type else None,
                     "existing_permit_id": active_permit.id,
                     "existing_type": active_permit.type.value,
                     "existing_description": active_permit.description,
@@ -276,6 +425,7 @@ def _filter_permits_by_area_validity(
                     "remaining_percent": round(_remaining_percent(active_permit, now), 1),
                 }
             )
+            filtered.append(permit)
             continue
 
         warning_permit = best_matching_existing(permit, require_active=False)
