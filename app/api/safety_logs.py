@@ -388,6 +388,147 @@ def fill_template_table(table: Table, *, values: dict[str, str], permits, page_i
         add_photos_fit(photo_cell, item.photo_url, max_width_cm=7.4, max_height_cm=3.0)
 
 
+def unique_row_cells(row):
+    seen = set()
+    result = []
+    for cell in row.cells:
+        marker = id(cell._tc)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        result.append(cell)
+    return result
+
+
+def clear_row(row) -> None:
+    for cell in unique_row_cells(row):
+        clear_cell(cell)
+
+
+def append_row_from_template(table: Table, row_xml):
+    table._tbl.append(deepcopy(row_xml))
+    return table.rows[-1]
+
+
+def grouped_log_sections(tasks, page_items, permits):
+    sections = []
+    by_task_id: dict[int, dict] = {}
+
+    def ensure_section(task: Task | None, fallback_title: str = "") -> dict:
+        task_id = getattr(task, "id", None)
+        key = task_id if task_id is not None else f"standalone-{len(sections)}"
+        if key in by_task_id:
+            return by_task_id[key]
+        title = text_value(getattr(task, "title", None), fallback_title or "当日作业")
+        section = {"task": task, "title": title, "items": [], "permits": []}
+        by_task_id[key] = section
+        sections.append(section)
+        return section
+
+    for task in tasks or []:
+        ensure_section(task)
+
+    for task, item in page_items or []:
+        ensure_section(task)["items"].append((task, item))
+
+    for permit in permits or []:
+        permit_task = getattr(permit, "task", None)
+        if permit_task is not None:
+            ensure_section(permit_task)["permits"].append(permit)
+            continue
+
+        matching = next(
+            (
+                section
+                for section in sections
+                if section["task"] is not None
+                and getattr(section["task"], "area_id", None) == getattr(permit, "area_id", None)
+            ),
+            None,
+        )
+        if matching is None:
+            matching = ensure_section(None, getattr(permit, "description", "") or permit_label(permit))
+        matching["permits"].append(permit)
+
+    return [section for section in sections if section["items"] or section["permits"]]
+
+
+def value_at(values: dict[str, str], index: int, fallback: str = "-") -> str:
+    try:
+        return list(values.values())[index]
+    except IndexError:
+        return fallback
+
+
+def fill_template_table(table: Table, *, values: dict[str, str], tasks, permits, page_items) -> None:
+    if len(table.rows) < 7:
+        fill_template_fields(table._parent, values)
+        return
+
+    set_solid_borders(table)
+    unlock_row_heights(table)
+    add_cell_text(table.rows[0].cells[1], value_at(values, 0))
+    add_cell_text(table.rows[0].cells[2], "区域", bold=True)
+    add_cell_text(table.rows[0].cells[-1], value_at(values, 1))
+    add_cell_text(table.rows[1].cells[1], value_at(values, 3))
+    add_cell_text(table.rows[1].cells[2], "星期", bold=True)
+    add_cell_text(table.rows[1].cells[-1], value_at(values, 4))
+    add_cell_text(table.rows[2].cells[1], value_at(values, 5))
+    add_cell_text(table.rows[2].cells[2], "安全员", bold=True)
+    add_cell_text(table.rows[2].cells[-1], value_at(values, 6))
+
+    title_row_template = deepcopy(table.rows[3]._tr)
+    permit_header_template = deepcopy(table.rows[3]._tr)
+    permit_content_template = deepcopy(table.rows[4]._tr)
+    risk_header_template = deepcopy(table.rows[5]._tr)
+    risk_row_template = deepcopy(table.rows[6]._tr)
+
+    while len(table.rows) > 3:
+        table._tbl.remove(table.rows[-1]._tr)
+
+    sections = grouped_log_sections(tasks, page_items, permits)
+    if not sections:
+        sections = [{"task": None, "title": "当日作业", "items": [], "permits": []}]
+
+    for section in sections:
+        title_row = append_row_from_template(table, title_row_template)
+        clear_row(title_row)
+        add_cell_text(title_row.cells[0], section["title"], bold=True, size=10)
+
+        permit_header_row = append_row_from_template(table, permit_header_template)
+        clear_row(permit_header_row)
+        add_cell_text(permit_header_row.cells[0], "作业票据", bold=True, size=10)
+
+        permit_row = append_row_from_template(table, permit_content_template)
+        clear_row(permit_row)
+        permit_cell = permit_row.cells[0]
+        permit_photo_cell = permit_row.cells[-1]
+        for index, permit in enumerate(section["permits"], start=1):
+            paragraph = permit_cell.paragraphs[0] if index == 1 and permit_cell.paragraphs else permit_cell.add_paragraph()
+            run = paragraph.add_run(
+                f"{index}. {permit_label(permit)}  区域：{permit.area.name if permit.area else '-'}  责任人：{permit.responsible_person}"
+            )
+            run.font.size = Pt(9)
+            add_photos_fit(permit_photo_cell, permit.photo_url, max_width_cm=7.4, max_height_cm=3.0)
+
+        risk_header_row = append_row_from_template(table, risk_header_template)
+        clear_row(risk_header_row)
+        add_cell_text(risk_header_row.cells[0], "隐患排查", bold=True, size=10)
+        add_cell_text(risk_header_row.cells[-1], "整改照片", bold=True, size=10)
+
+        if not section["items"]:
+            risk_row = append_row_from_template(table, risk_row_template)
+            clear_row(risk_row)
+            add_cell_text(risk_row.cells[0], "当日暂无隐患排查记录。", size=9)
+            continue
+
+        for local_index, (task, item) in enumerate(section["items"], start=1):
+            risk_row = append_row_from_template(table, risk_row_template)
+            clear_row(risk_row)
+            add_cell_text(risk_row.cells[0], risk_text(local_index, task, item), size=9)
+            add_photos_fit(risk_row.cells[-1], item.photo_url, max_width_cm=7.4, max_height_cm=3.0)
+
+
 def user_display_name(user: User | None) -> str:
     if not user:
         return "-"
@@ -433,7 +574,7 @@ def collect_log_data(db: Session, current_user: User, log_date: date):
 
     candidate_permits = (
         db.query(WorkPermit)
-        .options(joinedload(WorkPermit.area), joinedload(WorkPermit.applicant))
+        .options(joinedload(WorkPermit.area), joinedload(WorkPermit.applicant), joinedload(WorkPermit.task))
         .filter(WorkPermit.applicant_id == current_user.id)
         .filter(WorkPermit.photo_url.isnot(None))
         .order_by(WorkPermit.created_at.desc())
@@ -490,13 +631,13 @@ def build_docx(
     section.right_margin = Cm(1.4)
 
     if using_template:
-        indexed_items = [(index, task, item) for index, (task, item) in enumerate(items, start=1)]
         if document.tables:
             fill_template_table(
                 document.tables[0],
                 values=info_values,
+                tasks=tasks,
                 permits=permits,
-                page_items=indexed_items,
+                page_items=items,
             )
         if len(document.tables) > 1:
             for table in list(document.tables[1:]):
