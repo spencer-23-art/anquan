@@ -342,6 +342,7 @@ def _filter_permits_by_area_validity(
     *,
     area_id: int | None,
     permits: list,
+    allow_ai_scope_match: bool = True,
 ) -> tuple[list, list[dict]]:
     if not permits:
         return permits, []
@@ -404,8 +405,10 @@ def _filter_permits_by_area_validity(
             for existing in candidates
             if _is_same_work_scope(permit, existing)
         ]
-        if not matches:
+        if not matches and allow_ai_scope_match:
             return _ai_best_same_work_scope(db, requested_permit=permit, candidates=candidates)
+        if not matches:
+            return None
         return max(matches, key=lambda item: item.end_time or datetime.min)
 
     filtered = []
@@ -456,6 +459,7 @@ def _history_payload_for_response(db: Session, history: AIAnalysisHistory) -> di
         db,
         area_id=history.area_id,
         permits=permits,
+        allow_ai_scope_match=False,
     )
     payload["permits"] = filtered_permits
     payload["suppressed_permits"] = suppressed_permits
