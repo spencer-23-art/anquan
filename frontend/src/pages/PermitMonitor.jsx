@@ -168,8 +168,12 @@ export default function PermitMonitor() {
     return [...permits].sort((a, b) => {
       const progressA = getPermitProgress(a.start_time, a.end_time, now);
       const progressB = getPermitProgress(b.start_time, b.end_time, now);
-      const weight = { warning: 0, healthy: 1, expired: 2 };
-      return weight[progressA.statusTone] - weight[progressB.statusTone] || progressA.expiresAt - progressB.expiresAt;
+      const aExpired = progressA.statusTone === "expired";
+      const bExpired = progressB.statusTone === "expired";
+      if (aExpired !== bExpired) {
+        return aExpired ? 1 : -1;
+      }
+      return aExpired ? progressB.expiresAt - progressA.expiresAt : progressA.expiresAt - progressB.expiresAt;
     });
   }, [permits, now]);
 
