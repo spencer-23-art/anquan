@@ -724,6 +724,63 @@ def _already_asked_questions(messages: list[dict]) -> set[str]:
     return asked
 
 
+def _split_question_lines(text: str) -> list[str]:
+    candidates: list[str] = []
+
+    for line in text.splitlines():
+        cleaned = re.sub(r"^\s*(?:[-*]|[0-9]{1,3}[\.\)、\):：、])\s*", "", line).strip()
+        if cleaned:
+            candidates.append(cleaned)
+
+    if len(candidates) <= 1:
+        candidates = [
+            part.strip()
+            for part in re.split(r"(?:^|\s)[0-9]{1,3}[\.\)、\):：、]\s*", text)
+            if part.strip()
+        ]
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in candidates:
+        item = re.sub(r"\s+", " ", item).strip(" -\t\r\n")
+        if not item:
+            continue
+        if re.search(r"(?:补充.*信息|风险分析)", item) and not item.endswith(("?", "？")):
+            continue
+        if len(item) > 160:
+            item = item[:160].rstrip() + "..."
+        key = item.casefold()
+        if key not in seen:
+            seen.add(key)
+            normalized.append(item)
+    return normalized
+
+
+def _normalize_question_payload(messages: list[dict], parsed: dict, ai_content: str) -> dict:
+    raw = str(parsed.get("content") or ai_content or "").strip()
+    questions = _split_question_lines(raw)
+
+    if len(questions) > 5 or len(raw) > 900:
+        deterministic = _build_deterministic_question(messages)
+        if deterministic:
+            raw = deterministic
+            questions = _split_question_lines(raw)
+        else:
+            questions = questions[:5]
+
+    if not questions:
+        return {"type": "question", "content": raw}
+
+    if len(questions) <= 5 and raw and len(raw) <= 900:
+        return {"type": "question", "content": raw}
+
+    lines = [f"{index}. {question}" for index, question in enumerate(questions[:5], start=1)]
+    return {
+        "type": "question",
+        "content": "请一次性补充以下信息：\n" + "\n".join(lines),
+    }
+
+
 def chat(
     session_id: Optional[str],
     user_message: str,
@@ -802,10 +859,7 @@ def chat(
         if parsed.get("type") == "checklist":
             normalized = _normalize_checklist_payload(messages, parsed)
         else:
-            normalized = {
-                "type": "question",
-                "content": str(parsed.get("content") or ai_content).strip(),
-            }
+            normalized = _normalize_question_payload(messages, parsed, ai_content)
 
         content = json.dumps(normalized, ensure_ascii=False)
         messages.append({"role": "assistant", "content": content})
