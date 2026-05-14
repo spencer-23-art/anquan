@@ -1,6 +1,11 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+const normalizeUser = (user) => {
+  if (!user) return null;
+  return { ...user, role: String(user.role || '').toLowerCase() };
+};
+
 export const useAuthStore = create((set, get) => ({
   token: null,
   user: null,
@@ -15,7 +20,7 @@ export const useAuthStore = create((set, get) => ({
       const themeMode = await AsyncStorage.getItem('safe_theme_mode');
       set({
         token,
-        user: userText ? JSON.parse(userText) : null,
+        user: userText ? normalizeUser(JSON.parse(userText)) : null,
         themeMode: themeMode || 'system',
         isRestored: true,
       });
@@ -25,11 +30,12 @@ export const useAuthStore = create((set, get) => ({
   },
 
   setToken: async (token, user = null) => {
+    const normalizedUser = normalizeUser(user);
     await AsyncStorage.setItem('safe_token', token);
-    if (user) {
-      await AsyncStorage.setItem('safe_user', JSON.stringify(user));
+    if (normalizedUser) {
+      await AsyncStorage.setItem('safe_user', JSON.stringify(normalizedUser));
     }
-    set({ token, user });
+    set({ token, user: normalizedUser });
   },
 
   setPushToken: (token) => set({ pushToken: token }),

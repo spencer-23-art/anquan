@@ -79,6 +79,32 @@ PERMIT_LABELS = {
     "other": "其他作业票",
 }
 
+PERMIT_FAMILY_RANKS = {
+    "height": {
+        "height_level1": 1,
+        "height_level2": 2,
+        "height_level3": 3,
+        "height_special": 4,
+    },
+    "hot_work": {
+        "hot_work_level3": 1,
+        "hot_work_level2": 2,
+        "hot_work_level1": 3,
+    },
+}
+
+
+def _permit_family(permit_type: str) -> str:
+    for family, ranks in PERMIT_FAMILY_RANKS.items():
+        if permit_type in ranks:
+            return family
+    return permit_type
+
+
+def _permit_rank(permit_type: str) -> int:
+    family = _permit_family(permit_type)
+    return PERMIT_FAMILY_RANKS.get(family, {}).get(permit_type, 1)
+
 HEIGHT_KEYWORDS = (
     "高处",
     "高空",
@@ -540,6 +566,19 @@ def _infer_permits(messages: list[dict], ai_permits: Optional[list]) -> list[dic
     def add_permit(permit_type: str, reason: str) -> None:
         if permit_type in seen:
             return
+        permit_family = _permit_family(permit_type)
+        for index, existing in enumerate(permits):
+            existing_type = str(existing.get("type") or "")
+            if _permit_family(existing_type) == permit_family:
+                if _permit_rank(permit_type) > _permit_rank(existing_type):
+                    seen.discard(existing_type)
+                    seen.add(permit_type)
+                    permits[index] = {
+                        "type": permit_type,
+                        "label": PERMIT_LABELS.get(permit_type, permit_type),
+                        "reason": reason,
+                    }
+                return
         seen.add(permit_type)
         permits.append(
             {

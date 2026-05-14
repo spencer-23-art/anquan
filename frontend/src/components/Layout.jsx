@@ -33,8 +33,11 @@ const roleLabels = {
   external: "其他单位",
 };
 
+const normalizeRole = (role) => String(role || "").toLowerCase();
+
 function SidebarContent({ user, onLogout, onNavigate }) {
-  const visibleLinks = links.filter((link) => link.roles.includes(user?.role || "admin"));
+  const userRole = normalizeRole(user?.role || "admin");
+  const visibleLinks = links.filter((link) => link.roles.includes(userRole));
 
   return (
     <>
@@ -75,7 +78,7 @@ function SidebarContent({ user, onLogout, onNavigate }) {
           </div>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium">{user?.username || "管理员"}</p>
-            <p className="truncate text-xs text-muted-foreground">{roleLabels[user?.role] || user?.role || "管理员"}</p>
+            <p className="truncate text-xs text-muted-foreground">{roleLabels[userRole] || userRole || "管理员"}</p>
           </div>
         </div>
         <button

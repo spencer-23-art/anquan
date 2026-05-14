@@ -51,6 +51,7 @@ const PHOTO_W = SCREEN_W - CARD_PADDING;
 export default function PermitsScreen() {
   const { colors } = useAppTheme();
   const user = useAuthStore((state) => state.user);
+  const userRole = String(user?.role || '').toLowerCase();
   const [permission, requestPermission] = useCameraPermissions();
   const [permits, setPermits] = useState<any[]>([]);
   const [areas, setAreas] = useState<any[]>([]);
@@ -202,7 +203,7 @@ export default function PermitsScreen() {
   });
 
   const renderPermit = ({ item }: { item: any }) => {
-    const canEdit = user?.role === 'admin' || item.applicant_id === user?.id;
+    const canEdit = userRole === 'admin' || item.applicant_id === user?.id;
     const remaining = getRemainingInfo(item);
     const isUrgent = remaining.pct > 0 && remaining.pct < 20;
     const isNotExpired = item.status !== 'expired';

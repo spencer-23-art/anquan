@@ -56,6 +56,7 @@ export default function AppLayout() {
   const pathname = usePathname();
   const logout = useAuthStore((state) => state.logout);
   const user = useAuthStore((state) => state.user);
+  const userRole = String(user?.role || '').toLowerCase();
   const { colors, resolved } = useAppTheme();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(false);
@@ -235,7 +236,7 @@ export default function AppLayout() {
                     {user?.real_name || user?.username || '安全员'}
                   </Text>
                   <Text style={[styles.userRole, { color: colors.subtext }]}>
-                    {user?.role === 'admin' ? '管理员' : user?.role === 'external' ? '其他单位' : '安全员'}
+                    {userRole === 'admin' ? '管理员' : userRole === 'external' ? '其他单位' : '安全员'}
                   </Text>
                 </View>
               </View>

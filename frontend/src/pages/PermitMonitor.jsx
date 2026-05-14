@@ -111,6 +111,7 @@ function buildAreaOptions(areas) {
 
 export default function PermitMonitor() {
   const { user } = useAuthStore();
+  const userRole = String(user?.role || "").toLowerCase();
   const [permits, setPermits] = useState([]);
   const [areas, setAreas] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -131,7 +132,7 @@ export default function PermitMonitor() {
   });
 
   const areaOptions = useMemo(() => buildAreaOptions(areas), [areas]);
-  const canCreatePermit = ["admin", "inspector", "external"].includes(user?.role);
+  const canCreatePermit = ["admin", "inspector", "external"].includes(userRole);
 
   const loadData = async () => {
     setLoading(true);
@@ -383,7 +384,7 @@ export default function PermitMonitor() {
                     <button type="button" onClick={() => openPhotoPicker(permit.id, "renew")} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-slate-700 hover:bg-white/70">
                       <Upload size={13} />续票换照
                     </button>
-                    {user?.role === "admin" && (
+                    {userRole === "admin" && (
                       <button type="button" onClick={() => handleDeletePermit(permit.id)} className="rounded-lg p-1.5 text-slate-400 hover:bg-white/70 hover:text-rose-600">
                         <Trash2 size={14} />
                       </button>
