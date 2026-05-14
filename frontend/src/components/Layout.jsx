@@ -17,15 +17,21 @@ import {
 import { useAuthStore } from "../stores/auth";
 
 const links = [
-  { to: "/dashboard", icon: LayoutDashboard, label: "任务执行", roles: ["admin", "inspector"] },
+  { to: "/dashboard", icon: LayoutDashboard, label: "任务执行", roles: ["admin", "inspector", "external"] },
   { to: "/ai-chat", icon: Bot, label: "AI 风险分析", roles: ["admin"] },
-  { to: "/permits", icon: FileCheck, label: "作业许可", roles: ["admin", "inspector"] },
-  { to: "/fines", icon: FileText, label: "在线罚单", roles: ["admin", "inspector"] },
-  { to: "/safety-logs", icon: CalendarDays, label: "安全日志", roles: ["admin", "inspector"] },
+  { to: "/permits", icon: FileCheck, label: "作业许可", roles: ["admin", "inspector", "external"] },
+  { to: "/fines", icon: FileText, label: "在线罚单", roles: ["admin", "inspector", "external"] },
+  { to: "/safety-logs", icon: CalendarDays, label: "安全日志", roles: ["admin", "inspector", "external"] },
   { to: "/areas", icon: MapIcon, label: "区域管理", roles: ["admin"] },
   { to: "/approvals", icon: Users, label: "用户审核", roles: ["admin"] },
   { to: "/settings", icon: Settings, label: "系统设置", roles: ["admin"] },
 ];
+
+const roleLabels = {
+  admin: "管理员",
+  inspector: "安全员",
+  external: "其他单位",
+};
 
 function SidebarContent({ user, onLogout, onNavigate }) {
   const visibleLinks = links.filter((link) => link.roles.includes(user?.role || "admin"));
@@ -69,7 +75,7 @@ function SidebarContent({ user, onLogout, onNavigate }) {
           </div>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium">{user?.username || "管理员"}</p>
-            <p className="truncate text-xs text-muted-foreground">{user?.role || "admin"}</p>
+            <p className="truncate text-xs text-muted-foreground">{roleLabels[user?.role] || user?.role || "管理员"}</p>
           </div>
         </div>
         <button

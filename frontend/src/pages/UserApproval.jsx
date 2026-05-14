@@ -60,7 +60,7 @@ export default function UserApproval() {
     try {
       await api.put(`/users/${user.id}/permissions`, {
         role: user.role,
-        managed_area_id: user.role === "admin" && user.managed_area_id ? Number(user.managed_area_id) : null,
+        managed_area_id: (user.role === "admin" || user.role === "external") && user.managed_area_id ? Number(user.managed_area_id) : null,
         status: user.status,
       });
       setMessage(`${user.username} 的权限已保存。`);
@@ -118,13 +118,14 @@ export default function UserApproval() {
                 </td>
                 <td className="px-4 py-4">{user.phone || "-"}</td>
                 <td className="px-4 py-4">
-                  <select className="w-full rounded-lg border border-border bg-card px-3 py-2" value={user.role} onChange={(event) => updateUserLocal(user.id, { role: event.target.value })}>
-                    <option value="inspector">安全员</option>
-                    <option value="admin">管理员</option>
-                  </select>
+                    <select className="w-full rounded-lg border border-border bg-card px-3 py-2" value={user.role} onChange={(event) => updateUserLocal(user.id, { role: event.target.value })}>
+                      <option value="inspector">安全员</option>
+                      <option value="external">其他单位</option>
+                      <option value="admin">管理员</option>
+                    </select>
                 </td>
                 <td className="px-4 py-4">
-                  <select className="w-full rounded-lg border border-border bg-card px-3 py-2" value={user.managed_area_id || ""} disabled={user.role !== "admin"} onChange={(event) => updateUserLocal(user.id, { managed_area_id: event.target.value || null })}>
+                  <select className="w-full rounded-lg border border-border bg-card px-3 py-2" value={user.managed_area_id || ""} disabled={user.role !== "admin" && user.role !== "external"} onChange={(event) => updateUserLocal(user.id, { managed_area_id: event.target.value || null })}>
                     <option value="">不分配区域</option>
                     {areaOptions.map((area) => <option key={area.id} value={area.id}>{`${"　".repeat(area.depth)}${area.name}`}</option>)}
                   </select>

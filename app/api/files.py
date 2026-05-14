@@ -13,7 +13,7 @@ from app.models.fine_ticket import FineTicket
 from app.models.task import ChecklistItem, Task
 from app.models.user import User, UserRole, UserStatus
 from app.models.work_permit import WorkPermit, WorkPermitRenewal
-from app.services.area_scope import is_super_admin, managed_area_ids
+from app.services.area_scope import is_area_scoped_user, is_super_admin, managed_area_ids
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 
@@ -72,7 +72,7 @@ def can_access_upload(db: Session, user: User, upload_url: str) -> bool:
         )
     )
 
-    if user.role == UserRole.ADMIN:
+    if is_area_scoped_user(user):
         if not allowed_area_ids:
             return False
         if permit_query.filter(WorkPermit.area_id.in_(allowed_area_ids)).first():

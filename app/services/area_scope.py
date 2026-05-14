@@ -28,11 +28,15 @@ def collect_descendant_area_ids(db: Session, root_area_id: int | None) -> list[i
 def managed_area_ids(db: Session, user: User) -> list[int] | None:
     if is_super_admin(user):
         return None
-    if user.role != UserRole.ADMIN:
+    if user.role not in (UserRole.ADMIN, UserRole.EXTERNAL):
         return []
     if user.managed_area_id is None:
-        return None
+        return None if user.role == UserRole.ADMIN else []
     return collect_descendant_area_ids(db, user.managed_area_id)
+
+
+def is_area_scoped_user(user: User) -> bool:
+    return user.role in (UserRole.ADMIN, UserRole.EXTERNAL)
 
 
 def ensure_area_access(db: Session, user: User, area_id: int) -> None:

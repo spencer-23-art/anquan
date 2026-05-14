@@ -235,7 +235,7 @@ export default function AppLayout() {
                     {user?.real_name || user?.username || '安全员'}
                   </Text>
                   <Text style={[styles.userRole, { color: colors.subtext }]}>
-                    {user?.role === 'admin' ? '管理员' : '安全员'}
+                    {user?.role === 'admin' ? '管理员' : user?.role === 'external' ? '其他单位' : '安全员'}
                   </Text>
                 </View>
               </View>

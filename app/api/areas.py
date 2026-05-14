@@ -10,7 +10,7 @@ from app.models.task import Task
 from app.models.user import User
 from app.models.work_permit import WorkPermit
 from app.schemas.area import AreaCreate, AreaOut, AreaUpdate
-from app.services.area_scope import collect_descendant_area_ids, ensure_area_access, managed_area_ids
+from app.services.area_scope import collect_descendant_area_ids, ensure_area_access, is_super_admin, managed_area_ids
 
 router = APIRouter(prefix="/api/areas", tags=["areas"])
 
@@ -23,7 +23,7 @@ def list_areas(
 ):
     query = db.query(Area)
     allowed_ids = managed_area_ids(db, current_user)
-    if allowed_ids is not None and not include_all:
+    if allowed_ids is not None and (not include_all or not is_super_admin(current_user)):
         if not allowed_ids:
             task_area_ids = db.query(Task.area_id).filter(Task.assignee_id == current_user.id)
             permit_area_ids = db.query(WorkPermit.area_id).filter(

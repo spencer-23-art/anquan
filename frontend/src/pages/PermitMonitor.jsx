@@ -131,6 +131,7 @@ export default function PermitMonitor() {
   });
 
   const areaOptions = useMemo(() => buildAreaOptions(areas), [areas]);
+  const canCreatePermit = ["admin", "inspector", "external"].includes(user?.role);
 
   const loadData = async () => {
     setLoading(true);
@@ -286,7 +287,7 @@ export default function PermitMonitor() {
             <h1 className="text-2xl font-semibold tracking-tight text-slate-900">作业许可监控</h1>
             <p className="mt-2 text-sm leading-6 text-slate-500">剩余有效期小于等于 20% 自动黄色提醒，快到期的票证排在最前。</p>
           </div>
-          {user?.role === "admin" && (
+          {canCreatePermit && (
             <button type="button" onClick={() => setShowModal(true)} className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-slate-800">
               <FilePlus2 size={18} />
               手动添加票证

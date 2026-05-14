@@ -19,7 +19,7 @@ from app.models.work_permit import (
     WorkPermitRenewal,
 )
 from app.schemas.work_permit import WorkPermitOut, WorkPermitRenewalOut, WorkPermitWarning
-from app.services.area_scope import ensure_area_access, managed_area_ids
+from app.services.area_scope import ensure_area_access, is_area_scoped_user, managed_area_ids
 
 router = APIRouter(prefix="/api/permits", tags=["permits"])
 
@@ -94,7 +94,7 @@ def scoped_permit_query(db: Session, current_user: User):
     )
     query = query.filter(~((WorkPermit.task_id.isnot(None)) & (WorkPermit.photo_url.is_(None))))
     allowed_ids = managed_area_ids(db, current_user)
-    if allowed_ids is not None and current_user.role == UserRole.ADMIN:
+    if allowed_ids is not None and is_area_scoped_user(current_user):
         query = query.filter(WorkPermit.area_id.in_(allowed_ids))
     return query
 
@@ -169,7 +169,7 @@ def list_permits(
     if status_filter:
         query = query.filter(WorkPermit.status == status_filter)
     if area_id:
-        if current_user.role == UserRole.ADMIN:
+        if is_area_scoped_user(current_user):
             ensure_area_access(db, current_user, area_id)
         query = query.filter(WorkPermit.area_id == area_id)
     permits = query.order_by(WorkPermit.created_at.desc()).all()
@@ -253,7 +253,7 @@ async def create_manual_permit(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if current_user.role == UserRole.ADMIN:
+    if is_area_scoped_user(current_user):
         ensure_area_access(db, current_user, area_id)
     else:
         area = db.query(Area.id).filter(Area.id == area_id).first()

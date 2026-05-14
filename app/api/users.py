@@ -101,9 +101,11 @@ def update_user_permissions(
         ensure_area_access(db, current_user, data.managed_area_id)
     if data.role == UserRole.ADMIN and user.username != settings.ADMIN_USERNAME and not data.managed_area_id:
         raise HTTPException(status_code=400, detail="Admin users must have a managed area")
+    if data.role == UserRole.EXTERNAL and not data.managed_area_id:
+        raise HTTPException(status_code=400, detail="External users must have a managed area")
 
     user.role = data.role
-    user.managed_area_id = data.managed_area_id if data.role == UserRole.ADMIN else None
+    user.managed_area_id = data.managed_area_id if data.role in (UserRole.ADMIN, UserRole.EXTERNAL) else None
     if data.status:
         user.status = data.status
 
