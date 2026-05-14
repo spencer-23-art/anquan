@@ -666,6 +666,7 @@ def ai_chat(
                 db,
                 area_id=data.area_id,
                 permits=permits,
+                allow_ai_scope_match=False,
             )
             parsed["permits"] = filtered_permits
             if suppressed_permits:

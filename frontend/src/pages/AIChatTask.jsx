@@ -390,7 +390,7 @@ export default function AIChatTask() {
         permits: nextDraft.permits,
         area_id: Number(areaId),
         assignee_id: Number(createForm.assignee_id),
-      });
+      }, { timeout: 180000 });
       const issuedPermitCount = data?.permit_count ?? nextDraft.permits.length;
       const suppressedPermitCount = data?.suppressed_permit_count ?? 0;
       appendMessage({
@@ -451,7 +451,7 @@ export default function AIChatTask() {
         session_id: sessionId,
         message: userMessage.content,
         area_id: createForm.area_id ? Number(createForm.area_id) : undefined,
-      });
+      }, { timeout: 180000 });
 
       setSessionId(data.session_id);
 
@@ -520,7 +520,7 @@ export default function AIChatTask() {
         permits: selectedPermits,
         area_id: Number(createForm.area_id),
         assignee_id: Number(createForm.assignee_id),
-      });
+      }, { timeout: 180000 });
       const issuedPermitCount = data?.permit_count ?? selectedPermits.length;
       const suppressedPermitCount = data?.suppressed_permit_count ?? 0;
 
