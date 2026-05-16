@@ -204,7 +204,7 @@ export default function AIChatTask() {
   const loadHistory = useCallback(async (areaId) => {
     setHistoryLoading(true);
     try {
-      const params = { limit: 20 };
+      const params = { limit: 200 };
       if (areaId) {
         params.area_id = Number(areaId);
       }
@@ -694,7 +694,7 @@ export default function AIChatTask() {
 
             <div className="mt-3 grid gap-3 xl:grid-cols-2">
               {analysisHistory.length ? (
-                analysisHistory.slice(0, 6).map((history) => (
+                analysisHistory.map((history) => (
                   <div key={history.id} className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">

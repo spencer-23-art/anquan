@@ -1,7 +1,7 @@
 import json
 import re
 from difflib import SequenceMatcher
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -27,6 +27,7 @@ from app.services import risk_inquiry
 from app.services.area_scope import ensure_area_access, managed_area_ids
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
+AI_HISTORY_RETENTION_DAYS = 30
 
 
 def local_now() -> datetime:
@@ -283,11 +284,7 @@ def _collapse_requested_permits(permits: list) -> list:
         replaced = False
         for index, existing in enumerate(collapsed):
             existing_type = _permit_type_enum(existing)
-            if (
-                existing_type
-                and _permit_family(existing_type) == _permit_family(permit_type)
-                and _is_same_work_scope(permit, existing)
-            ):
+            if existing_type and _permit_family(existing_type) == _permit_family(permit_type):
                 if _permit_rank(permit_type) > _permit_rank(existing_type):
                     collapsed[index] = permit
                 replaced = True
@@ -491,6 +488,8 @@ def _save_analysis_history(
     payload: dict,
 ) -> None:
     title = str(payload.get("summary") or "AI 生成作业任务").strip()[:200]
+    cutoff = local_now() - timedelta(days=AI_HISTORY_RETENTION_DAYS)
+    db.query(AIAnalysisHistory).filter(AIAnalysisHistory.created_at < cutoff).delete(synchronize_session=False)
     db.add(
         AIAnalysisHistory(
             title=title,
@@ -597,11 +596,15 @@ def update_ai_config(
 @router.get("/history", response_model=list[AIAnalysisHistoryOut])
 def list_ai_analysis_history(
     area_id: int | None = None,
-    limit: int = 20,
+    limit: int = 200,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    cutoff = local_now() - timedelta(days=AI_HISTORY_RETENTION_DAYS)
+    db.query(AIAnalysisHistory).filter(AIAnalysisHistory.created_at < cutoff).delete(synchronize_session=False)
+    db.commit()
     query = db.query(AIAnalysisHistory)
+    query = query.filter(AIAnalysisHistory.created_at >= cutoff)
     allowed_ids = managed_area_ids(db, current_user)
     if area_id:
         ensure_area_access(db, current_user, area_id)
@@ -611,7 +614,7 @@ def list_ai_analysis_history(
 
     histories = (
         query.order_by(AIAnalysisHistory.created_at.desc())
-        .limit(max(1, min(limit, 50)))
+        .limit(max(1, min(limit, 200)))
         .all()
     )
     return [_history_out(db, history) for history in histories]
