@@ -190,6 +190,7 @@ export default function AIChatTask() {
   const [pageMessage, setPageMessage] = useState("");
   const [analysisHistory, setAnalysisHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [showAllHistory, setShowAllHistory] = useState(false);
   const [deletingHistoryId, setDeletingHistoryId] = useState(null);
   const [selectedRiskIndexes, setSelectedRiskIndexes] = useState([]);
   const [selectedPermitIndexes, setSelectedPermitIndexes] = useState([]);
@@ -210,6 +211,7 @@ export default function AIChatTask() {
       }
       const { data } = await api.get("/ai/history", { params });
       setAnalysisHistory(data || []);
+      setShowAllHistory(false);
     } catch (err) {
       setPageMessage(extractErrorMessage(err, "分析历史加载失败，请稍后重试。"));
     } finally {
@@ -304,6 +306,11 @@ export default function AIChatTask() {
   const selectedAssignee = useMemo(
     () => assignees.find((assignee) => String(assignee.id) === String(createForm.assignee_id)),
     [assignees, createForm.assignee_id]
+  );
+
+  const visibleAnalysisHistory = useMemo(
+    () => (showAllHistory ? analysisHistory : analysisHistory.slice(0, 6)),
+    [analysisHistory, showAllHistory]
   );
 
   const selectedRiskItems = useMemo(() => {
@@ -694,7 +701,7 @@ export default function AIChatTask() {
 
             <div className="mt-3 grid gap-3 xl:grid-cols-2">
               {analysisHistory.length ? (
-                analysisHistory.map((history) => (
+                visibleAnalysisHistory.map((history) => (
                   <div key={history.id} className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -751,6 +758,17 @@ export default function AIChatTask() {
                 </div>
               )}
             </div>
+            {analysisHistory.length > 6 ? (
+              <div className="mt-3 flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => setShowAllHistory((current) => !current)}
+                  className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100"
+                >
+                  {showAllHistory ? "收起" : `更多（还有 ${analysisHistory.length - 6} 条）`}
+                </button>
+              </div>
+            ) : null}
           </div>
         </section>
 
