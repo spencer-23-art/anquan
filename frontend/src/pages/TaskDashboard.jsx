@@ -44,6 +44,16 @@ function formatDateTime(value) {
   return new Date(value).toLocaleString("zh-CN");
 }
 
+function formatUploadTimeFromUrl(value) {
+  const filename = decodeURIComponent(String(value || "").split("/").pop() || "");
+  const match = filename.match(/(?:^|_)(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(?:\d{0,6})?\.[^.]+$/);
+  if (!match) {
+    return "";
+  }
+  const [, year, month, day, hour, minute, second] = match;
+  return formatDateTime(`${year}-${month}-${day}T${hour}:${minute}:${second}`);
+}
+
 function formatDayLabel(value) {
   return new Date(value).toLocaleDateString("zh-CN", {
     month: "long",
@@ -227,11 +237,12 @@ function PhotoGallery({
     <div className={`grid gap-2 ${gridClass}`}>
       {urls.map((url, index) => {
         const fullUrl = buildProtectedFileUrl(url);
+        const photoTime = formatUploadTimeFromUrl(url);
         return (
           <button
             key={`${url}-${index}`}
             type="button"
-            className={`group flex ${heightClass} cursor-zoom-in items-center justify-center overflow-hidden rounded-xl border border-border bg-slate-950/5 p-2 transition hover:border-primary/50 hover:bg-primary/5`}
+            className={`group relative flex ${heightClass} cursor-zoom-in items-center justify-center overflow-hidden rounded-xl border border-border bg-slate-950/5 p-2 transition hover:border-primary/50 hover:bg-primary/5`}
             onClick={() => onPreview(fullUrl)}
             title="点击查看完整照片"
           >
@@ -240,6 +251,11 @@ function PhotoGallery({
               alt={`${alt}${urls.length > 1 ? ` ${index + 1}` : ""}`}
               className="max-h-full max-w-full object-contain transition group-hover:scale-[1.01]"
             />
+            {photoTime ? (
+              <span className="pointer-events-none absolute inset-x-1 bottom-1 rounded-lg bg-slate-950/75 px-1.5 py-0.5 text-center text-[10px] leading-4 text-white">
+                拍照时间：{photoTime}
+              </span>
+            ) : null}
           </button>
         );
       })}
