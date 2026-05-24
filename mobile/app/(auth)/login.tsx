@@ -11,6 +11,7 @@ export default function LoginScreen() {
   const { colors } = useAppTheme();
   const usernameRef = useRef('');
   const [password, setPassword] = useState('');
+  const [rememberLogin, setRememberLogin] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const setToken = useAuthStore((state) => state.setToken);
@@ -28,7 +29,7 @@ export default function LoginScreen() {
     setError('');
     try {
       const res = await api.post('auth/login', { username: loginUsername, password });
-      await setToken(res.data.access_token, res.data.user);
+      await setToken(res.data.access_token, res.data.user, rememberLogin);
     } catch (err: any) {
       if (err.response?.status === 401) {
         setError('登录失败，请检查账号和密码');
@@ -72,6 +73,17 @@ export default function LoginScreen() {
           onSubmitEditing={handleLogin}
         />
 
+        <TouchableOpacity
+          style={[styles.rememberRow, { borderColor: colors.border, backgroundColor: colors.cardSoft }]}
+          activeOpacity={0.85}
+          onPress={() => setRememberLogin((value) => !value)}
+        >
+          <Text style={[styles.rememberText, { color: colors.text }]}>保持登录，下次自动进入</Text>
+          <View style={[styles.checkbox, { borderColor: rememberLogin ? colors.primary : colors.border, backgroundColor: rememberLogin ? colors.primary : 'transparent' }]}>
+            {rememberLogin ? <Text style={styles.checkboxMark}>✓</Text> : null}
+          </View>
+        </TouchableOpacity>
+
         {error ? <Text style={[styles.error, { color: colors.danger, backgroundColor: `${colors.danger}14` }]}>{error}</Text> : null}
 
         <TouchableOpacity style={[styles.button, { backgroundColor: colors.primary }]} onPress={handleLogin} disabled={loading}>
@@ -94,6 +106,10 @@ const styles = StyleSheet.create({
   subtitle: { marginTop: 8, marginBottom: 28, fontSize: 14, lineHeight: 22 },
   label: { marginBottom: 8, fontSize: 14, fontWeight: '700' },
   input: { borderWidth: 1, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 14, marginBottom: 18, fontSize: 16 },
+  rememberRow: { marginBottom: 18, borderWidth: 1, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  rememberText: { fontSize: 14, fontWeight: '700' },
+  checkbox: { width: 22, height: 22, borderWidth: 1.5, borderRadius: 7, alignItems: 'center', justifyContent: 'center' },
+  checkboxMark: { color: '#fff', fontSize: 15, fontWeight: '900', lineHeight: 18 },
   error: { borderRadius: 14, padding: 12, marginBottom: 16, fontWeight: '700' },
   button: { borderRadius: 16, paddingVertical: 16, alignItems: 'center' },
   buttonText: { color: '#fff', fontSize: 17, fontWeight: '800' },

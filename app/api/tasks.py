@@ -42,7 +42,7 @@ def local_now() -> datetime:
 
 def get_workday_start(now: datetime | None = None) -> datetime:
     current = now or local_now()
-    return current.replace(hour=7, minute=0, second=0, microsecond=0)
+    return current.replace(hour=8, minute=0, second=0, microsecond=0)
 
 
 def get_permit_start_time(permit_type: PermitType, now: datetime | None = None) -> datetime:

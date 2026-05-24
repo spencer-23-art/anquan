@@ -12,6 +12,7 @@ export const useAuthStore = create((set, get) => ({
   pushToken: null,
   themeMode: 'system',
   isRestored: false,
+  rememberLogin: false,
 
   restoreToken: async () => {
     try {
@@ -22,6 +23,7 @@ export const useAuthStore = create((set, get) => ({
         token,
         user: userText ? normalizeUser(JSON.parse(userText)) : null,
         themeMode: themeMode || 'system',
+        rememberLogin: !!token,
         isRestored: true,
       });
     } catch {
@@ -29,13 +31,15 @@ export const useAuthStore = create((set, get) => ({
     }
   },
 
-  setToken: async (token, user = null) => {
+  setToken: async (token, user = null, remember = false) => {
     const normalizedUser = normalizeUser(user);
-    await AsyncStorage.setItem('safe_token', token);
-    if (normalizedUser) {
+    await AsyncStorage.removeItem('safe_token');
+    await AsyncStorage.removeItem('safe_user');
+    if (remember) {
+      await AsyncStorage.setItem('safe_token', token);
       await AsyncStorage.setItem('safe_user', JSON.stringify(normalizedUser));
     }
-    set({ token, user: normalizedUser });
+    set({ token, user: normalizedUser, rememberLogin: remember });
   },
 
   setPushToken: (token) => set({ pushToken: token }),
@@ -47,6 +51,6 @@ export const useAuthStore = create((set, get) => ({
   logout: async () => {
     await AsyncStorage.removeItem('safe_token');
     await AsyncStorage.removeItem('safe_user');
-    set({ token: null, user: null });
+    set({ token: null, user: null, rememberLogin: false });
   }
 }));

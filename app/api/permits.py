@@ -30,7 +30,7 @@ def local_now() -> datetime:
 
 def get_permit_start_time(permit_type: PermitType, now: Optional[datetime] = None) -> datetime:
     current = now or local_now()
-    workday_start = current.replace(hour=7, minute=0, second=0, microsecond=0)
+    workday_start = current.replace(hour=8, minute=0, second=0, microsecond=0)
     planned_end = calculate_end_time(permit_type, workday_start)
     if current >= planned_end:
         return current.replace(microsecond=0)

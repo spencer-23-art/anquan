@@ -11,6 +11,7 @@ export default function Login() {
   const login = useAuthStore((state) => state.login);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberLogin, setRememberLogin] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -28,7 +29,7 @@ export default function Login() {
 
     try {
       const { data } = await api.post("/auth/login", { username: loginUsername, password });
-      login(data.user, data.access_token);
+      login(data.user, data.access_token, rememberLogin);
       navigate("/dashboard");
     } catch (err) {
       setError(err.response?.data?.detail || "登录失败，请检查账号和密码");
@@ -68,6 +69,16 @@ export default function Login() {
               autoComplete="current-password"
             />
           </div>
+
+          <label className="flex cursor-pointer items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+            <span className="font-medium">保持登录，下次自动进入</span>
+            <input
+              type="checkbox"
+              checked={rememberLogin}
+              onChange={(event) => setRememberLogin(event.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+            />
+          </label>
 
           {error ? (
             <div className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-600">{error}</div>
