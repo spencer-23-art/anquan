@@ -42,6 +42,9 @@ class TaskCreate(BaseModel):
     title: str
     description: Optional[str] = None
     area_id: int
+    project_name: Optional[str] = None
+    work_point: Optional[str] = None
+    process_name: Optional[str] = None
     assignee_id: int
     checklist_items: List[ChecklistItemCreate] = []
 
@@ -51,6 +54,9 @@ class TaskOut(BaseModel):
     title: str
     description: Optional[str] = None
     area_id: int
+    project_name: Optional[str] = None
+    work_point: Optional[str] = None
+    process_name: Optional[str] = None
     assignee_id: int
     creator_id: int
     status: TaskStatus
@@ -85,6 +91,9 @@ class TaskFromAI(BaseModel):
     title: str
     description: Optional[str] = None
     area_id: int
+    project_name: Optional[str] = None
+    work_point: Optional[str] = None
+    process_name: Optional[str] = None
     assignee_id: int
     session_id: str
     checklist_items: List[ChecklistItemCreate]

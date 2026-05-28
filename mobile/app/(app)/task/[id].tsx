@@ -225,6 +225,12 @@ export default function ChecklistScreen() {
   const requiredPermits = task?.required_permits || [];
   const completedPermitCount = requiredPermits.filter((permit: any) => permit.permit_id && permit.photo_url).length;
   const isAllChecked = items.length > 0 && checkedCount === items.length && completedPermitCount === requiredPermits.length;
+  const taskContextBadges = [
+    task?.project_name ? `项目：${task.project_name}` : '',
+    task?.area?.name ? `区域：${task.area.name}` : '',
+    task?.work_point ? `作业点：${task.work_point}` : '',
+    task?.process_name ? `工序：${task.process_name}` : '',
+  ].filter(Boolean);
 
   return (
     <ScrollView
@@ -248,7 +254,9 @@ export default function ChecklistScreen() {
         <Text style={styles.title}>{task?.title || '安全排查任务'}</Text>
         <Text style={styles.desc}>{textOrFallback(task?.description, '管理员下发的现场风险排查任务，请逐项拍照确认。')}</Text>
         <View style={styles.badgeRow}>
-          <Text style={styles.areaBadge}>区域：{task?.area?.name || '-'}</Text>
+          {taskContextBadges.map((badge) => (
+            <Text key={badge} style={styles.areaBadge}>{badge}</Text>
+          ))}
           <Text style={styles.statusBadge}>{statusValue(task?.status) === 'completed' ? '已完成' : `待完成 ${items.length - checkedCount} 项`}</Text>
         </View>
       </View>

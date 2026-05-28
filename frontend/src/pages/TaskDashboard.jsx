@@ -504,6 +504,14 @@ export default function TaskDashboard() {
                   ).length;
                   const progressWidth =
                     (checkedCount / Math.max(checklistItems.length, 1)) * 100;
+                  const taskMeta = [
+                    ["项目", task.project_name],
+                    ["区域", task.area?.name || "未知区域"],
+                    ["作业点", task.work_point],
+                    ["工序", task.process_name],
+                    ["执行人", task.assignee?.username || "-"],
+                    ["创建时间", formatDateTime(task.created_at)],
+                  ].filter(([, value]) => value);
 
                   return (
                     <div
@@ -531,10 +539,10 @@ export default function TaskDashboard() {
                             )}
                           </div>
 
-                          <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
-                            <span>区域: {task.area?.name || "未知区域"}</span>
-                            <span>执行人: {task.assignee?.username || "-"}</span>
-                            <span>创建时间: {formatDateTime(task.created_at)}</span>
+                          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                            {taskMeta.map(([label, value]) => (
+                              <span key={label}>{label}: {value}</span>
+                            ))}
                           </div>
                         </div>
 

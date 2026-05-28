@@ -5,6 +5,7 @@ import Register from './pages/Register';
 import Layout from './components/Layout';
 import TaskDashboard from './pages/TaskDashboard';
 import AIChatTask from './pages/AIChatTask';
+import QualityControl from './pages/QualityControl';
 import PermitMonitor from './pages/PermitMonitor';
 import FineTicketCenter from './pages/FineTicketCenter';
 import AreaManagement from './pages/AreaManagement';
@@ -51,6 +52,11 @@ function App() {
         <Route path="ai-chat" element={
           <ProtectedRoute adminOnly={true}>
             <AIChatTask />
+          </ProtectedRoute>
+        } />
+        <Route path="quality-control" element={
+          <ProtectedRoute adminOnly={true}>
+            <QualityControl />
           </ProtectedRoute>
         } />
         <Route path="permits" element={<PermitMonitor />} />

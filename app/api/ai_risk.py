@@ -25,9 +25,11 @@ from app.schemas.system_config import (
 from app.services import ai_config_service
 from app.services import risk_inquiry
 from app.services.area_scope import ensure_area_access, managed_area_ids
+from app.services.task_context import build_task_description, clean_task_context_text, resolve_project_name
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 AI_HISTORY_RETENTION_DAYS = 30
+AI_HISTORY_MODULE_RISK = "risk"
 
 
 def local_now() -> datetime:
@@ -294,24 +296,51 @@ def _collapse_requested_permits(permits: list) -> list:
     return collapsed
 
 
-def _ensure_permit_descriptions(permits: list, *, title: str, area_name: str | None) -> list:
+def _permit_description_parts(
+    *,
+    project_name: str | None = None,
+    area_name: str | None = None,
+    work_point: str | None = None,
+    process_name: str | None = None,
+    title: str | None = None,
+    permit_label: str | None = None,
+) -> str:
+    parts: list[str] = []
+    for part in [project_name, area_name, work_point, process_name, title, permit_label]:
+        text = str(part or "").strip()
+        if text and text not in parts:
+            parts.append(text)
+    return "".join(parts)
+
+
+def _ensure_permit_descriptions(
+    permits: list,
+    *,
+    title: str,
+    area_name: str | None,
+    project_name: str | None = None,
+    work_point: str | None = None,
+    process_name: str | None = None,
+) -> list:
     enriched: list = []
     for permit in permits:
         permit_type = _permit_type_enum(permit)
+        description = _permit_description_parts(
+            project_name=project_name,
+            area_name=area_name,
+            work_point=work_point,
+            process_name=process_name,
+            title=title,
+            permit_label=_permit_label(permit_type),
+        )
         if isinstance(permit, dict):
             next_permit = dict(permit)
             if not str(next_permit.get("description") or "").strip():
-                next_permit["description"] = "".join(
-                    part for part in [area_name or "", title or "", _permit_label(permit_type)] if part
-                )
+                next_permit["description"] = description
             enriched.append(next_permit)
         else:
             if not _permit_field(permit, "description"):
-                setattr(
-                    permit,
-                    "description",
-                    "".join(part for part in [area_name or "", title or "", _permit_label(permit_type)] if part),
-                )
+                setattr(permit, "description", description)
             enriched.append(permit)
     return enriched
 
@@ -496,6 +525,7 @@ def _save_analysis_history(
             area_id=area_id,
             creator_id=creator_id,
             ai_session_id=session_id,
+            module=AI_HISTORY_MODULE_RISK,
             payload=json.dumps(payload, ensure_ascii=False),
         )
     )
@@ -604,7 +634,10 @@ def list_ai_analysis_history(
     db.query(AIAnalysisHistory).filter(AIAnalysisHistory.created_at < cutoff).delete(synchronize_session=False)
     db.commit()
     query = db.query(AIAnalysisHistory)
-    query = query.filter(AIAnalysisHistory.created_at >= cutoff)
+    query = query.filter(
+        AIAnalysisHistory.created_at >= cutoff,
+        AIAnalysisHistory.module == AI_HISTORY_MODULE_RISK,
+    )
     allowed_ids = managed_area_ids(db, current_user)
     if area_id:
         ensure_area_access(db, current_user, area_id)
@@ -626,7 +659,14 @@ def delete_ai_analysis_history(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    history = db.query(AIAnalysisHistory).filter(AIAnalysisHistory.id == history_id).first()
+    history = (
+        db.query(AIAnalysisHistory)
+        .filter(
+            AIAnalysisHistory.id == history_id,
+            AIAnalysisHistory.module == AI_HISTORY_MODULE_RISK,
+        )
+        .first()
+    )
     if not history:
         raise HTTPException(status_code=404, detail="Analysis history not found")
 
@@ -711,18 +751,33 @@ def create_task_from_ai(
         assignee = db.query(User).filter(User.id == data.assignee_id).first()
         if not assignee:
             raise HTTPException(status_code=404, detail="Assignee not found")
+        area = db.query(Area).filter(Area.id == data.area_id).first()
+        project_name = resolve_project_name(db, data.area_id, data.project_name)
+        work_point = clean_task_context_text(data.work_point)
+        process_name = clean_task_context_text(data.process_name)
+        permit_payload = _ensure_permit_descriptions(
+            data.permits or [],
+            title=title,
+            area_name=area.name if area else None,
+            project_name=project_name,
+            work_point=work_point,
+            process_name=process_name,
+        )
         filtered_permits, suppressed_permits = _filter_permits_by_area_validity(
             db,
             area_id=data.area_id,
-            permits=data.permits or [],
+            permits=permit_payload,
         )
         for permit in filtered_permits:
             PermitType(permit.type)
 
         task = Task(
             title=title,
-            description=f"Generated from AI session {data.session_id}",
+            description=build_task_description("Generated from AI session", data.session_id, work_point, process_name),
             area_id=data.area_id,
+            project_name=project_name,
+            work_point=work_point,
+            process_name=process_name,
             assignee_id=data.assignee_id,
             creator_id=current_user.id,
             ai_session_id=data.session_id,

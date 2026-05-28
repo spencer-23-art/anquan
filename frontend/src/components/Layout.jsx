@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   Bot,
   CalendarDays,
+  ClipboardCheck,
   FileCheck,
   FileText,
   LayoutDashboard,
@@ -18,7 +19,8 @@ import { useAuthStore } from "../stores/auth";
 
 const links = [
   { to: "/dashboard", icon: LayoutDashboard, label: "任务执行", roles: ["admin", "inspector", "external"] },
-  { to: "/ai-chat", icon: Bot, label: "AI 风险分析", roles: ["admin"] },
+  { to: "/ai-chat", icon: Bot, label: "安全风险", roles: ["admin"] },
+  { to: "/quality-control", icon: ClipboardCheck, label: "质量控制", roles: ["admin"] },
   { to: "/permits", icon: FileCheck, label: "作业许可", roles: ["admin", "inspector", "external"] },
   { to: "/fines", icon: FileText, label: "在线罚单", roles: ["admin", "inspector", "external"] },
   { to: "/safety-logs", icon: CalendarDays, label: "安全日志", roles: ["admin", "inspector", "external"] },

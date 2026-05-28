@@ -14,6 +14,7 @@ class AIAnalysisHistory(Base):
     area_id = Column(Integer, ForeignKey("areas.id"), nullable=True, index=True)
     creator_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     ai_session_id = Column(String(64), nullable=False, index=True)
+    module = Column(String(32), default="risk", nullable=False, index=True)
     payload = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

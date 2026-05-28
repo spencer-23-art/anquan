@@ -72,6 +72,9 @@ class AICreateTaskRequest(BaseModel):
     area_id: int
     assignee_id: int
     title: Optional[str] = None
+    project_name: Optional[str] = None
+    work_point: Optional[str] = None
+    process_name: Optional[str] = None
     items: Optional[list[dict]] = []
     permits: Optional[list[AICreatePermitData]] = []
 

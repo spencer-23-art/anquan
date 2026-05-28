@@ -14,6 +14,7 @@ from app.api.auth import router as auth_router
 from app.api.files import router as files_router
 from app.api.fines import router as fines_router
 from app.api.permits import router as permits_router
+from app.api.quality import router as quality_router
 from app.api.safety_logs import router as safety_logs_router
 from app.api.tasks import router as tasks_router
 from app.api.users import router as users_router
@@ -82,6 +83,12 @@ def ensure_runtime_schema():
             task_columns = {column["name"] for column in inspector.get_columns("tasks")}
             if "required_permits" not in task_columns:
                 conn.execute(text("ALTER TABLE tasks ADD COLUMN required_permits TEXT"))
+            if "project_name" not in task_columns:
+                conn.execute(text("ALTER TABLE tasks ADD COLUMN project_name VARCHAR(200)"))
+            if "work_point" not in task_columns:
+                conn.execute(text("ALTER TABLE tasks ADD COLUMN work_point VARCHAR(200)"))
+            if "process_name" not in task_columns:
+                conn.execute(text("ALTER TABLE tasks ADD COLUMN process_name VARCHAR(200)"))
 
         conn.execute(
             text(
@@ -92,6 +99,7 @@ def ensure_runtime_schema():
                     area_id INTEGER,
                     creator_id INTEGER NOT NULL,
                     ai_session_id VARCHAR(64) NOT NULL,
+                    module VARCHAR(32) NOT NULL DEFAULT 'risk',
                     payload TEXT NOT NULL,
                     created_at DATETIME NOT NULL,
                     updated_at DATETIME NOT NULL,
@@ -105,6 +113,10 @@ def ensure_runtime_schema():
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_analysis_histories_area_id ON ai_analysis_histories (area_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_analysis_histories_creator_id ON ai_analysis_histories (creator_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_analysis_histories_ai_session_id ON ai_analysis_histories (ai_session_id)"))
+        history_columns = {column["name"] for column in inspector.get_columns("ai_analysis_histories")}
+        if "module" not in history_columns:
+            conn.execute(text("ALTER TABLE ai_analysis_histories ADD COLUMN module VARCHAR(32) NOT NULL DEFAULT 'risk'"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_analysis_histories_module ON ai_analysis_histories (module)"))
 
         if "fine_tickets" in table_names:
             fine_columns = {column["name"] for column in inspector.get_columns("fine_tickets")}
@@ -239,6 +251,7 @@ app.include_router(tasks_router)
 app.include_router(permits_router)
 app.include_router(safety_logs_router)
 app.include_router(ai_router)
+app.include_router(quality_router)
 app.include_router(files_router)
 app.include_router(fines_router)
 

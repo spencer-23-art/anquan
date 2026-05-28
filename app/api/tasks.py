@@ -13,6 +13,7 @@ from app.models.user import User, UserRole
 from app.models.work_permit import PERMIT_DURATION_HOURS, PermitStatus, PermitType, WorkPermit
 from app.schemas.task import TaskCreate, TaskFromAI, TaskOut
 from app.services.area_scope import ensure_area_access, managed_area_ids
+from app.services.task_context import clean_task_context_text, resolve_project_name
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
@@ -78,6 +79,9 @@ def create_task(
         title=data.title,
         description=data.description,
         area_id=data.area_id,
+        project_name=resolve_project_name(db, data.area_id, data.project_name),
+        work_point=clean_task_context_text(data.work_point),
+        process_name=clean_task_context_text(data.process_name),
         assignee_id=data.assignee_id,
         creator_id=current_user.id,
         status=TaskStatus.PENDING,
@@ -112,6 +116,9 @@ def create_task_from_ai(
         title=data.title,
         description=data.description,
         area_id=data.area_id,
+        project_name=resolve_project_name(db, data.area_id, data.project_name),
+        work_point=clean_task_context_text(data.work_point),
+        process_name=clean_task_context_text(data.process_name),
         assignee_id=data.assignee_id,
         creator_id=current_user.id,
         status=TaskStatus.PENDING,

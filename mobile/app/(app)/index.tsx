@@ -120,6 +120,12 @@ export default function ClientHomeScreen() {
     const done = item.checklist_items?.filter((check: any) => isChecked(check.status)).length || 0;
     const highCount = item.checklist_items?.filter((check: any) => check.severity === 'high').length || 0;
     const firstItems = (item.checklist_items || []).slice(0, 2);
+    const contextChips = [
+      item.project_name ? `项目：${item.project_name}` : '',
+      item.area?.name ? `区域：${item.area.name}` : '',
+      item.work_point ? `作业点：${item.work_point}` : '',
+      item.process_name ? `工序：${item.process_name}` : '',
+    ].filter(Boolean);
     return (
       <BlurView
         intensity={100}
@@ -141,6 +147,15 @@ export default function ClientHomeScreen() {
             </Text>
           </View>
           <Text style={[styles.taskDesc, { color: colors.subtext }]} numberOfLines={2}>{item.description || '管理员下发的现场风险排查任务'}</Text>
+          {contextChips.length ? (
+            <View style={styles.contextRow}>
+              {contextChips.map((chip) => (
+                <Text key={chip} style={[styles.contextChip, { color: colors.primary, backgroundColor: colors.primarySoft }]} numberOfLines={1}>
+                  {chip}
+                </Text>
+              ))}
+            </View>
+          ) : null}
           <View style={styles.riskList}>
             {firstItems.map((check: any, index: number) => (
               <View key={check.id || index} style={[styles.riskPreview, { backgroundColor: colors.cardSoft, borderColor: colors.border }]}>
@@ -233,6 +248,8 @@ const styles = StyleSheet.create({
   taskTitle: { flex: 1, fontSize: 16, fontWeight: '900' },
   badge: { overflow: 'hidden', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4, fontSize: 12, fontWeight: '800' },
   taskDesc: { marginTop: 8, fontSize: 13, lineHeight: 20 },
+  contextRow: { marginTop: 10, flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  contextChip: { overflow: 'hidden', maxWidth: '100%', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4, fontSize: 11, fontWeight: '900' },
   riskList: { marginTop: 12, gap: 8 },
   riskPreview: { borderWidth: 1, borderRadius: 14, padding: 10 },
   riskPreviewTitle: { fontSize: 13, fontWeight: '900', lineHeight: 18 },
