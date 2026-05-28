@@ -6,7 +6,7 @@ class Settings(BaseSettings):
 
     SECRET_KEY: str = "safeinspect-dev-secret-key-change-in-production"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 43200
     CORS_ORIGINS: str = "http://127.0.0.1:5173,http://localhost:5173"
     ADMIN_USERNAME: str = "spencer"
     ADMIN_PASSWORD: str = "s2484815"
