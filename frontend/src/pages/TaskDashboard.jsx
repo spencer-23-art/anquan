@@ -561,61 +561,67 @@ export default function TaskDashboard() {
 
                       {expandedTask === task.id ? (
                         <div className="animate-in slide-in-from-top-2 space-y-6 border-t border-white/20 dark:border-white/10 bg-transparent p-4 fade-in">
-                          {task.associated_permits && task.associated_permits.length > 0 ? (
+                          {task.required_permits && task.required_permits.length > 0 ? (
                             <div className="space-y-3">
                               <h3 className="text-sm font-bold text-foreground">
-                                关联作业票证 ({task.associated_permits.length})
+                                必须办理的作业许可 ({task.required_permits.length})
                               </h3>
                               <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                                {task.associated_permits.map((permit, index) => (
-                                  <div
-                                    key={index}
-                                    className="flex min-h-[260px] flex-col gap-3 glass-panel p-3"
-                                  >
-                                    <PhotoGallery
-                                      value={permit.photo_url}
-                                      alt="作业票证照片"
-                                      emptyText="暂无办票照片"
-                                      heightClass="h-40"
-                                      gridClass="grid-cols-2"
-                                      onPreview={setPreviewUrl}
-                                      onAddPhoto={canOperate ? () => beginPermitPhoto(task, permit, index) : null}
-                                    />
+                                {task.required_permits.map((permit, index) => {
+                                  const isProcessed = !!(permit.permit_id || permit.photo_url);
+                                  return (
+                                    <div
+                                      key={index}
+                                      className="flex min-h-[260px] flex-col gap-3 glass-panel p-3"
+                                    >
+                                      <PhotoGallery
+                                        value={permit.photo_url}
+                                        alt="作业票证照片"
+                                        emptyText={canOperate ? "点击加号调用摄像头现场拍照" : "等待执行人上传"}
+                                        heightClass="h-40"
+                                        gridClass="grid-cols-2"
+                                        onPreview={setPreviewUrl}
+                                        onAddPhoto={canOperate ? () => beginPermitPhoto(task, permit, index) : null}
+                                      />
 
-                                    <div className="flex flex-1 flex-col justify-between gap-3 rounded-lg bg-blue-500/5 p-3">
-                                      <div className="space-y-2">
-                                        <div className="flex flex-wrap items-center gap-2">
-                                          <span className="rounded bg-blue-500/20 px-2 py-1 text-xs font-bold text-blue-700">
-                                            {PERMIT_MAP[permit.type] || permit.type}
-                                          </span>
-                                          <span
-                                            className={`rounded px-2 py-1 text-xs ${
-                                              permit.status === "active"
-                                                ? "bg-green-500/20 text-green-600"
-                                                : permit.status === "pending"
-                                                  ? "bg-yellow-500/20 text-yellow-600"
-                                                  : "bg-destructive/20 text-destructive"
-                                            }`}
-                                          >
-                                            {permit.status === "active"
-                                              ? "已生效"
-                                              : permit.status === "pending"
-                                                ? "待激活"
-                                                : "已失效"}
-                                          </span>
+                                      <div className={`flex flex-1 flex-col justify-between gap-3 rounded-lg p-3 ${isProcessed ? "bg-emerald-500/5" : "bg-amber-500/5"}`}>
+                                        <div className="space-y-2">
+                                          <div className="flex flex-wrap items-center gap-2">
+                                            <span className="rounded bg-blue-500/20 px-2 py-1 text-xs font-bold text-blue-700">
+                                              {PERMIT_MAP[permit.type] || permit.type}
+                                            </span>
+                                            <span
+                                              className={`rounded px-2 py-1 text-xs ${
+                                                isProcessed
+                                                  ? "bg-green-500/20 text-green-600"
+                                                  : "bg-amber-500/20 text-amber-600"
+                                              }`}
+                                            >
+                                              {isProcessed ? "已办理" : "未办理"}
+                                            </span>
+                                            {permit.permit_id && (
+                                              <span className="rounded bg-slate-100 px-2 py-1 text-xs text-slate-600">
+                                                ID: #{permit.permit_id}
+                                              </span>
+                                            )}
+                                          </div>
+                                          <div className="text-xs leading-6 text-muted-foreground">
+                                            <div>责任人: {permit.responsible_person || "-"}</div>
+                                            {permit.description || permit.reason ? (
+                                              <div>作业描述: {permit.description || permit.reason}</div>
+                                            ) : null}
+                                            {permit.end_time ? (
+                                              <div>有效期至: {formatDateTime(permit.end_time)}</div>
+                                            ) : null}
+                                          </div>
                                         </div>
-                                        <div className="text-xs leading-6 text-muted-foreground">
-                                          <div>责任人: {permit.responsible_person || "-"}</div>
-                                          {permit.description ? <div>作业描述: {permit.description}</div> : null}
-                                          <div>有效期至: {formatDateTime(permit.end_time)}</div>
+                                        <div className="text-[10px] text-muted-foreground">
+                                          {photoUrls(permit.photo_url).length || 0} 张照片
                                         </div>
-                                      </div>
-                                      <div className="text-[10px] text-muted-foreground">
-                                        {photoUrls(permit.photo_url).length || 0} 张照片
                                       </div>
                                     </div>
-                                  </div>
-                                ))}
+                                  );
+                                })}
                               </div>
                             </div>
                           ) : null}
