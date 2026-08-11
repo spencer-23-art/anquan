@@ -6,7 +6,10 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, get_db, require_admin
 from app.config import settings
 from app.models.area import Area
+from app.models.fine_ticket import FineTicket
+from app.models.task import Task
 from app.models.user import User, UserRole, UserStatus
+from app.models.work_permit import WorkPermit
 from app.schemas.user import UserOut, UserPermissionUpdate
 from app.services.area_scope import ensure_area_access, is_super_admin
 
@@ -22,10 +25,9 @@ def require_super_admin(current_user: User) -> None:
 def list_users(
     status_filter: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
-    # Only super admin can see pending users or manage them, 
-    # but any logged in user can see approved users for assignment.
+    # Only administrators need the approved-user directory for task assignment.
     if status_filter != "approved":
         require_super_admin(current_user)
     query = db.query(User)
@@ -76,6 +78,8 @@ def reject_user(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    if user.id == current_user.id:
+        raise HTTPException(status_code=400, detail="You cannot reject your own account")
     user.status = UserStatus.REJECTED
     db.commit()
     db.refresh(user)
@@ -93,11 +97,15 @@ def update_user_permissions(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    if user.id == current_user.id:
+        raise HTTPException(status_code=400, detail="You cannot change your own administrator permissions")
 
     if data.managed_area_id:
         area = db.query(Area).filter(Area.id == data.managed_area_id).first()
         if not area:
             raise HTTPException(status_code=400, detail="Managed area not found")
+        if not area.is_active:
+            raise HTTPException(status_code=400, detail="Archived areas cannot be assigned to users")
         ensure_area_access(db, current_user, data.managed_area_id)
     if data.role == UserRole.ADMIN and user.username != settings.ADMIN_USERNAME and not data.managed_area_id:
         raise HTTPException(status_code=400, detail="Admin users must have a managed area")
@@ -124,6 +132,25 @@ def delete_user(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    if user.id == current_user.id:
+        raise HTTPException(status_code=400, detail="You cannot delete your own account")
+    if user.status == UserStatus.APPROVED:
+        raise HTTPException(status_code=409, detail="Approved accounts must be suspended instead of deleted")
+
+    has_business_history = any(
+        [
+            db.query(Task.id)
+            .filter((Task.assignee_id == user.id) | (Task.creator_id == user.id))
+            .first(),
+            db.query(WorkPermit.id).filter(WorkPermit.applicant_id == user.id).first(),
+            db.query(FineTicket.id).filter(FineTicket.creator_id == user.id).first(),
+        ]
+    )
+    if has_business_history:
+        raise HTTPException(
+            status_code=409,
+            detail="Accounts with business records must be suspended to preserve audit history",
+        )
     db.delete(user)
     db.commit()
     return {"message": "User deleted"}

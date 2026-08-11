@@ -35,7 +35,7 @@ const SEVERITY_MAP = {
   low: "低度风险",
 };
 
-const MAX_PHOTO_BYTES = 200 * 1024;
+const MAX_PHOTO_BYTES = 1024 * 1024;
 
 function formatDateTime(value) {
   if (!value) {
@@ -159,7 +159,7 @@ async function captureCompressedPhoto(video) {
   }
 
   if (bestBlob && bestBlob.size <= MAX_PHOTO_BYTES) return bestBlob;
-  throw new Error(`照片压缩后仍超过 200KB，请稍微离远一点重拍。当前约 ${Math.ceil((bestBlob?.size || 0) / 1024)}KB`);
+  throw new Error(`照片压缩后仍超过 1MB，请稍微离远一点重拍。当前约 ${Math.ceil((bestBlob?.size || 0) / 1024)}KB`);
 }
 
 async function compressImageFile(file) {
@@ -193,7 +193,7 @@ async function compressImageFile(file) {
   }
 
   if (bestBlob && bestBlob.size <= MAX_PHOTO_BYTES) return bestBlob;
-  throw new Error(`照片压缩后仍超过 200KB，请稍微离远一点重拍。当前约 ${Math.ceil((bestBlob?.size || 0) / 1024)}KB`);
+  throw new Error(`照片压缩后仍超过 1MB，请稍微离远一点重拍。当前约 ${Math.ceil((bestBlob?.size || 0) / 1024)}KB`);
 }
 
 function GuidanceBlock({ title, children, tone = "slate" }) {
@@ -276,6 +276,7 @@ function PhotoGallery({
 export default function TaskDashboard() {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [expandedTask, setExpandedTask] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [cameraOpen, setCameraOpen] = useState(false);
@@ -292,10 +293,12 @@ export default function TaskDashboard() {
 
   const fetchTasks = async () => {
     try {
+      setLoadError("");
       const res = await api.get("/tasks");
       setTasks(res.data || []);
     } catch (err) {
       console.error("Failed to fetch tasks", err);
+      setLoadError(err.response?.data?.detail || "任务数据加载失败，请检查网络后重试。");
     } finally {
       setLoading(false);
     }
@@ -385,7 +388,7 @@ export default function TaskDashboard() {
       setCameraTarget(target);
       setCameraStream(stream);
       setCameraOpen(true);
-    } catch (err) {
+    } catch {
       setCameraTarget(target);
       setTimeout(() => captureInputRef.current?.click(), 0);
     }
@@ -475,12 +478,33 @@ export default function TaskDashboard() {
         className="hidden"
         onChange={handleCaptureInput}
       />
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-foreground">
+      <div className="flex items-center justify-between gap-4">
+        <h1 className="text-xl font-bold text-foreground sm:text-2xl">
           {user?.role === "admin" ? "任务执行监控" : "我的安全任务"}
         </h1>
-        <div className="text-xs text-muted-foreground">每 10 秒自动刷新</div>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span>每 10 秒自动刷新</span>
+          <button
+            type="button"
+            onClick={fetchTasks}
+            disabled={loading}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+            title="刷新任务"
+            aria-label="刷新任务"
+          >
+            <RefreshCcw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          </button>
+        </div>
       </div>
+
+      {loadError ? (
+        <div role="alert" className="flex items-center justify-between gap-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          <span>{loadError}</span>
+          <button type="button" onClick={fetchTasks} className="shrink-0 font-medium underline underline-offset-4">
+            重试
+          </button>
+        </div>
+      ) : null}
 
       {loading ? (
         <div className="py-20 text-center text-muted-foreground">正在加载任务数据...</div>
@@ -497,6 +521,7 @@ export default function TaskDashboard() {
               <div className="grid gap-4">
                 {group.items.map((task) => {
                   const checklistItems = task.checklist_items || [];
+                  const requiredPermits = task.required_permits || [];
                   const canOperate = task.assignee_id === user?.id || task.assignee?.id === user?.id;
                   const showAdminCompactRisk = user?.role === "admin";
                   const checkedCount = checklistItems.filter(
@@ -504,6 +529,9 @@ export default function TaskDashboard() {
                   ).length;
                   const progressWidth =
                     (checkedCount / Math.max(checklistItems.length, 1)) * 100;
+                  const completedPermitCount = requiredPermits.filter(
+                    (permit) => permit.permit_id && permit.photo_url
+                  ).length;
                   const taskMeta = [
                     ["项目", task.project_name],
                     ["区域", task.area?.name || "未知区域"],
@@ -516,16 +544,16 @@ export default function TaskDashboard() {
                   return (
                     <div
                       key={task.id}
-                      className="overflow-hidden glass-card transition-all hover:shadow-[0_8px_32px_rgba(0,0,0,0.08)]"
+                      className="overflow-hidden glass-card transition-shadow hover:shadow-md"
                     >
                       <div
-                        className="flex cursor-pointer items-center justify-between p-4 hover:bg-secondary/20"
+                        className="flex cursor-pointer flex-col gap-3 p-4 hover:bg-secondary/20 sm:flex-row sm:items-center sm:justify-between"
                         onClick={() =>
                           setExpandedTask(expandedTask === task.id ? null : task.id)
                         }
                       >
-                        <div className="flex-1">
-                          <div className="mb-1 flex items-center gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="mb-1 flex flex-wrap items-center gap-2">
                             <span className="font-bold text-foreground">{task.title}</span>
                             {getStatusBadge(task.status)}
                             {user?.role === "admin" && (
@@ -539,18 +567,23 @@ export default function TaskDashboard() {
                             )}
                           </div>
 
-                          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                          <div className="grid gap-1 text-xs text-muted-foreground sm:flex sm:flex-wrap sm:gap-x-4 sm:gap-y-1">
                             {taskMeta.map(([label, value]) => (
                               <span key={label}>{label}: {value}</span>
                             ))}
                           </div>
                         </div>
 
-                        <div className="flex flex-col items-end gap-2">
-                          <div className="text-xs font-bold text-primary">
-                            进度: {checkedCount} / {checklistItems.length}
+                        <div className="flex w-full items-center justify-between gap-3 sm:w-32 sm:flex-col sm:items-end sm:gap-2">
+                          <div className="text-left text-xs font-bold text-primary sm:text-right">
+                            <div>检查: {checkedCount} / {checklistItems.length}</div>
+                            {requiredPermits.length ? (
+                              <div className="mt-1 text-[10px] text-muted-foreground">
+                                票证: {completedPermitCount} / {requiredPermits.length}
+                              </div>
+                            ) : null}
                           </div>
-                          <div className="h-1.5 w-32 overflow-hidden rounded-full bg-secondary">
+                          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-secondary sm:w-32 sm:flex-none">
                             <div
                               className="h-full bg-primary transition-all duration-500"
                               style={{ width: `${progressWidth}%` }}
@@ -561,14 +594,14 @@ export default function TaskDashboard() {
 
                       {expandedTask === task.id ? (
                         <div className="animate-in slide-in-from-top-2 space-y-6 border-t border-white/20 dark:border-white/10 bg-transparent p-4 fade-in">
-                          {task.required_permits && task.required_permits.length > 0 ? (
+                          {requiredPermits.length > 0 ? (
                             <div className="space-y-3">
                               <h3 className="text-sm font-bold text-foreground">
                                 必须办理的作业许可 ({task.required_permits.length})
                               </h3>
                               <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                                {task.required_permits.map((permit, index) => {
-                                  const isProcessed = !!(permit.permit_id || permit.photo_url);
+                                  {requiredPermits.map((permit, index) => {
+                                  const isProcessed = !!(permit.permit_id && permit.photo_url);
                                   return (
                                     <div
                                       key={index}

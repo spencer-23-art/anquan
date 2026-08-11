@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarDays, Download, FileText, Loader2, RotateCcw, Share2, UserRound } from "lucide-react";
 import api from "../lib/axios";
 import { useAuthStore } from "../stores/auth";
@@ -35,15 +35,15 @@ export default function SafetyLog() {
     [inspectors, selectedUserId]
   );
 
-  const loadInspectors = async () => {
+  const loadInspectors = useCallback(async () => {
     if (!isAdmin) return;
     const { data } = await api.get("/users", { params: { status_filter: "approved" } });
     const approvedInspectors = (data || []).filter((item) => item.role === "inspector");
     setInspectors(approvedInspectors);
     setSelectedUserId((current) => current || String(approvedInspectors[0]?.id || ""));
-  };
+  }, [isAdmin]);
 
-  const loadHistory = async () => {
+  const loadHistory = useCallback(async () => {
     setHistoryLoading(true);
     try {
       const params = { limit: 80 };
@@ -57,15 +57,15 @@ export default function SafetyLog() {
     } finally {
       setHistoryLoading(false);
     }
-  };
+  }, [isAdmin, selectedUserId]);
 
   useEffect(() => {
     loadInspectors().catch(() => {});
-  }, [isAdmin]);
+  }, [loadInspectors]);
 
   useEffect(() => {
     loadHistory();
-  }, [isAdmin, selectedUserId]);
+  }, [loadHistory]);
 
   const getCurrentPosition = async () => {
     if (!navigator.geolocation) return {};

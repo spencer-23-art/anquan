@@ -9,8 +9,11 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
+from app.models.area import Area
 from app.models.fine_ticket import FineTicket, FineTicketType
+from app.models.task import Task
 from app.models.user import User, UserRole
+from app.models.work_permit import WorkPermit
 from app.schemas.fine_ticket import (
     FineDescriptionRequest,
     FineDescriptionResponse,
@@ -37,6 +40,28 @@ def ensure_fine_access(db: Session, current_user: User, record: FineTicket) -> N
         raise HTTPException(status_code=403, detail="No permission to access this fine ticket")
 
 
+def ensure_fine_area_access(db: Session, current_user: User, area_id: int) -> None:
+    area = db.query(Area).filter(Area.id == area_id).first()
+    if not area:
+        raise HTTPException(status_code=404, detail="Area not found")
+    if not area.is_active:
+        raise HTTPException(status_code=409, detail="Archived areas cannot receive new fine tickets")
+    if current_user.role in (UserRole.ADMIN, UserRole.EXTERNAL):
+        ensure_area_access(db, current_user, area_id)
+        return
+
+    has_assigned_task = db.query(Task.id).filter(
+        Task.assignee_id == current_user.id,
+        Task.area_id == area_id,
+    ).first()
+    has_own_permit = db.query(WorkPermit.id).filter(
+        WorkPermit.applicant_id == current_user.id,
+        WorkPermit.area_id == area_id,
+    ).first()
+    if not has_assigned_task and not has_own_permit:
+        raise HTTPException(status_code=403, detail="No permission to create a fine ticket for this area")
+
+
 @router.get("/next-number", response_model=FineNumberPreview)
 def next_number(
     type: str = "quality",
@@ -60,6 +85,13 @@ def generate_description(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Invalid fine ticket type") from exc
 
+    rule_reference = fine_ticket_service.resolve_rule_reference(
+        user_input=data.input,
+        project_name=data.project_name,
+        team_name=data.team_name,
+        location=data.location,
+        ticket_type=ticket_type,
+    )
     description = fine_ticket_service.generate_description(
         db=db,
         user_input=data.input,
@@ -69,13 +101,13 @@ def generate_description(
         discovery_date=data.discovery_date,
         ticket_type=ticket_type,
     )
-    return FineDescriptionResponse(description=description)
+    return FineDescriptionResponse(description=description, rule_reference=rule_reference)
 
 
 @router.post("", response_model=FineTicketCreateResponse)
 def create_fine_ticket(
     penalty_type: str = Form(...),
-    area_id: Optional[int] = Form(default=None),
+    area_id: int = Form(...),
     project_name: str = Form(...),
     team_name: str = Form(...),
     location: str = Form(...),
@@ -91,11 +123,12 @@ def create_fine_ticket(
         amount_value = Decimal(amount)
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Invalid fine ticket payload") from exc
+    if not amount_value.is_finite() or amount_value <= 0:
+        raise HTTPException(status_code=400, detail="Fine amount must be greater than zero")
 
     photo_paths: list[Path] = []
     try:
-        if area_id is not None and current_user.role == UserRole.ADMIN:
-            ensure_area_access(db, current_user, area_id)
+        ensure_fine_area_access(db, current_user, area_id)
 
         number = fine_ticket_service.consume_next_number(ticket_type)
         photo_paths = fine_ticket_service.save_uploaded_photos(photos)

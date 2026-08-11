@@ -39,8 +39,8 @@ export default function Login() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[linear-gradient(160deg,#f8fafc_0%,#ecfdf5_45%,#eff6ff_100%)] px-4 py-8 sm:px-6">
-      <div className="w-full max-w-md rounded-[28px] border border-white/80 bg-white/95 p-6 shadow-[0_20px_70px_rgba(15,23,42,0.12)] backdrop-blur sm:p-8">
+    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-8 sm:px-6">
+      <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
         <h1 className="text-2xl font-bold text-slate-900 sm:text-3xl">安全巡检管理系统</h1>
         <p className="mt-2 text-sm leading-6 text-slate-500">
           登录后进入安全任务、作业许可、在线罚单等核心功能。
@@ -50,7 +50,7 @@ export default function Login() {
           <div>
             <label className="mb-2 block text-sm font-medium text-slate-700">用户名</label>
             <input
-              className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-base outline-none transition focus:border-emerald-500"
+              className="w-full rounded-lg border border-slate-300 px-4 py-3 text-base outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
               value={username}
               onChange={(event) => setUsername(event.target.value)}
               placeholder="请输入用户名"
@@ -62,7 +62,7 @@ export default function Login() {
             <label className="mb-2 block text-sm font-medium text-slate-700">密码</label>
             <input
               type="password"
-              className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-base outline-none transition focus:border-emerald-500"
+              className="w-full rounded-lg border border-slate-300 px-4 py-3 text-base outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               placeholder="请输入密码"
@@ -70,7 +70,7 @@ export default function Login() {
             />
           </div>
 
-          <label className="flex cursor-pointer items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+          <label className="flex cursor-pointer items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
             <span className="font-medium">保持登录，下次自动进入</span>
             <input
               type="checkbox"
@@ -81,13 +81,13 @@ export default function Login() {
           </label>
 
           {error ? (
-            <div className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-600">{error}</div>
+            <div role="alert" className="rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
           ) : null}
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-2xl bg-emerald-600 px-4 py-3 font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-300"
+            className="w-full rounded-lg bg-emerald-700 px-4 py-3 font-medium text-white transition hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-emerald-300"
           >
             {loading ? "登录中..." : "登录"}
           </button>

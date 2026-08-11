@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, List, Optional
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from app.models.task import CheckItemStatus, Severity, TaskStatus
 from app.schemas.area import AreaOut
@@ -46,7 +46,7 @@ class TaskCreate(BaseModel):
     work_point: Optional[str] = None
     process_name: Optional[str] = None
     assignee_id: int
-    checklist_items: List[ChecklistItemCreate] = []
+    checklist_items: List[ChecklistItemCreate] = Field(min_length=1)
 
 
 class TaskOut(BaseModel):
@@ -96,4 +96,4 @@ class TaskFromAI(BaseModel):
     process_name: Optional[str] = None
     assignee_id: int
     session_id: str
-    checklist_items: List[ChecklistItemCreate]
+    checklist_items: List[ChecklistItemCreate] = Field(min_length=1)

@@ -1,168 +1,214 @@
-import { useEffect, useMemo, useState } from "react";
-import { Save, Trash2, UserCheck } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  BadgeCheck,
+  Ban,
+  Check,
+  Clock3,
+  Loader2,
+  Save,
+  ShieldCheck,
+  UserCheck,
+  UserRound,
+  UsersRound,
+  X,
+} from "lucide-react";
 import api from "../lib/axios";
+import { useAuthStore } from "../stores/auth";
+
+const statusMeta = {
+  pending: { label: "待审核", className: "bg-amber-50 text-amber-800" },
+  approved: { label: "在用", className: "bg-emerald-50 text-emerald-800" },
+  rejected: { label: "已驳回", className: "bg-rose-50 text-rose-800" },
+  suspended: { label: "已停用", className: "bg-slate-100 text-slate-700" },
+};
 
 function buildAreaOptions(areas) {
-  const childrenByParent = areas.reduce((acc, area) => {
+  const byParent = areas.reduce((index, area) => {
     const key = area.parent_id || "root";
-    acc[key] = [...(acc[key] || []), area];
-    return acc;
+    index[key] = [...(index[key] || []), area];
+    return index;
   }, {});
-  const result = [];
-  const walk = (parentKey, depth) => {
-    (childrenByParent[parentKey] || [])
-      .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"))
+  const options = [];
+  const walk = (parentId, depth) => {
+    (byParent[parentId] || [])
+      .sort((left, right) => left.name.localeCompare(right.name, "zh-CN"))
       .forEach((area) => {
-        result.push({ ...area, depth });
+        options.push({ ...area, depth });
         walk(area.id, depth + 1);
       });
   };
   walk("root", 0);
-  return result;
+  return options;
 }
 
-function statusText(status) {
-  if (status === "approved") return "已通过";
-  if (status === "rejected") return "已驳回";
-  return "待审核";
-}
-
-function normalizedRole(role) {
-  return String(role || "").toLowerCase();
+function formatDate(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString("zh-CN");
 }
 
 export default function UserApproval() {
+  const currentUser = useAuthStore((state) => state.user);
   const [users, setUsers] = useState([]);
   const [areas, setAreas] = useState([]);
+  const [tab, setTab] = useState("pending");
   const [loading, setLoading] = useState(true);
+  const [busyUserId, setBusyUserId] = useState(null);
   const [message, setMessage] = useState("");
+  const [messageTone, setMessageTone] = useState("success");
 
-  const areaOptions = useMemo(() => buildAreaOptions(areas), [areas]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [userRes, areaRes] = await Promise.all([api.get("/users"), api.get("/areas")]);
-      setUsers(userRes.data || []);
-      setAreas(areaRes.data || []);
+      const [userResponse, areaResponse] = await Promise.all([
+        api.get("/users"),
+        api.get("/areas", { params: { include_all: true } }),
+      ]);
+      setUsers(userResponse.data || []);
+      setAreas((areaResponse.data || []).filter((area) => area.is_active !== false));
     } catch (error) {
-      setMessage(error?.response?.data?.detail || "用户数据加载失败");
+      setMessage(error?.response?.data?.detail || "用户目录加载失败。");
+      setMessageTone("error");
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
-  const updateUserLocal = (userId, patch) => {
+  const areaOptions = useMemo(() => buildAreaOptions(areas), [areas]);
+  const counts = useMemo(() => ({
+    pending: users.filter((user) => user.status === "pending").length,
+    active: users.filter((user) => user.status === "approved").length,
+    inactive: users.filter((user) => user.status === "rejected" || user.status === "suspended").length,
+  }), [users]);
+  const displayedUsers = useMemo(() => users.filter((user) => {
+    if (tab === "pending") return user.status === "pending";
+    if (tab === "active") return user.status === "approved";
+    return user.status === "rejected" || user.status === "suspended";
+  }), [tab, users]);
+
+  const notify = (text, tone = "success") => {
+    setMessage(text);
+    setMessageTone(tone);
+  };
+
+  const patchUser = (userId, patch) => {
     setUsers((current) => current.map((user) => (user.id === userId ? { ...user, ...patch } : user)));
   };
 
-  const savePermissions = async (user) => {
+  const saveAccess = async (user, nextStatus = user.status, successMessage = "账号授权已保存。") => {
+    const role = String(user.role || "inspector").toLowerCase();
+    const requiresArea = role === "admin" || role === "external";
+    if (requiresArea && !user.managed_area_id) {
+      notify("区域管理员和外部协作方必须分配管理区域。", "error");
+      return;
+    }
+    setBusyUserId(user.id);
     try {
       await api.put(`/users/${user.id}/permissions`, {
-        role: normalizedRole(user.role),
-        managed_area_id: (normalizedRole(user.role) === "admin" || normalizedRole(user.role) === "external") && user.managed_area_id ? Number(user.managed_area_id) : null,
-        status: user.status,
+        role,
+        managed_area_id: requiresArea ? Number(user.managed_area_id) : null,
+        status: nextStatus,
       });
-      setMessage(`${user.username} 的权限已保存。`);
+      notify(successMessage);
       await loadData();
     } catch (error) {
-      setMessage(error?.response?.data?.detail || "权限保存失败");
+      notify(error?.response?.data?.detail || "账号授权保存失败。", "error");
+    } finally {
+      setBusyUserId(null);
     }
   };
 
-  const handleDelete = async (userId) => {
-    if (!window.confirm("确认删除这个用户吗？此操作不可恢复。")) return;
+  const rejectUser = async (user) => {
+    if (!window.confirm(`确认驳回 ${user.real_name || user.username} 的申请吗？`)) return;
+    setBusyUserId(user.id);
     try {
-      await api.delete(`/users/${userId}`);
-      setMessage("用户已删除。");
+      await api.post(`/users/${user.id}/reject`);
+      notify("申请已驳回，账号不会获得系统访问权限。");
       await loadData();
     } catch (error) {
-      setMessage(error?.response?.data?.detail || "删除失败");
+      notify(error?.response?.data?.detail || "驳回失败。", "error");
+    } finally {
+      setBusyUserId(null);
     }
   };
 
   if (loading) {
-    return <div className="text-foreground">加载中...</div>;
+    return <div className="flex min-h-56 items-center justify-center text-sm text-muted-foreground"><Loader2 className="mr-2 h-4 w-4 animate-spin" />正在加载用户目录</div>;
   }
 
   return (
-    <div className="space-y-6 text-foreground">
-      <div>
-        <div className="flex items-center gap-2">
-          <UserCheck className="h-6 w-6 text-primary" />
-          <h1 className="text-2xl font-bold tracking-tight">用户审核与权限</h1>
+    <div className="space-y-5 text-foreground">
+      <header className="flex flex-col gap-4 border-b border-border pb-5 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <div className="flex items-center gap-2"><UsersRound className="h-6 w-6 text-primary" /><h1 className="text-2xl font-semibold">用户与授权管理</h1></div>
+          <p className="mt-1 text-sm text-muted-foreground">先审核身份，再分配角色和区域范围。离岗账号停用并保留操作记录，不直接删除。</p>
         </div>
-        <p className="mt-1 text-sm text-muted-foreground">安全员账号用于风险排查客户端；管理员账号可进入后台，并按分配区域管理项目。</p>
+        <div className="grid grid-cols-3 divide-x divide-border rounded-lg border border-border bg-card text-center">
+          <div className="px-4 py-2"><div className="text-lg font-semibold">{counts.pending}</div><div className="text-xs text-muted-foreground">待审核</div></div>
+          <div className="px-4 py-2"><div className="text-lg font-semibold">{counts.active}</div><div className="text-xs text-muted-foreground">在用账号</div></div>
+          <div className="px-4 py-2"><div className="text-lg font-semibold">{counts.inactive}</div><div className="text-xs text-muted-foreground">已停用/驳回</div></div>
+        </div>
+      </header>
+
+      {message ? <div className={`rounded-lg border px-4 py-3 text-sm ${messageTone === "error" ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>{message}</div> : null}
+
+      <div className="flex flex-wrap gap-2 border-b border-border">
+        {[{ id: "pending", label: "待审核", count: counts.pending, icon: Clock3 }, { id: "active", label: "在用账号", count: counts.active, icon: BadgeCheck }, { id: "inactive", label: "已停用", count: counts.inactive, icon: Ban }].map((item) => {
+          const Icon = item.icon;
+          const active = tab === item.id;
+          return <button key={item.id} type="button" onClick={() => setTab(item.id)} className={`inline-flex items-center gap-2 border-b-2 px-3 py-3 text-sm ${active ? "border-primary font-medium text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}><Icon className="h-4 w-4" />{item.label}<span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">{item.count}</span></button>;
+        })}
       </div>
 
-      {message ? <div className="rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">{message}</div> : null}
-
-      <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-sm">
-        <table className="w-full min-w-[980px] text-left text-sm">
-          <thead className="border-b border-border bg-secondary/50 font-medium text-muted-foreground">
-            <tr>
-              <th className="px-4 py-3">用户</th>
-              <th className="px-4 py-3">手机号</th>
-              <th className="px-4 py-3">角色</th>
-              <th className="px-4 py-3">管理区域</th>
-              <th className="px-4 py-3">状态</th>
-              <th className="px-4 py-3 text-right">操作</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {users.map((user) => (
-              <tr key={user.id} className="transition-colors hover:bg-secondary/20">
-                <td className="px-4 py-4">
-                  <div className="font-semibold">{user.username}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">{user.real_name}</div>
-                </td>
-                <td className="px-4 py-4">{user.phone || "-"}</td>
-                <td className="px-4 py-4">
-                    <select className="w-full rounded-lg border border-border bg-card px-3 py-2" value={normalizedRole(user.role)} onChange={(event) => updateUserLocal(user.id, { role: event.target.value })}>
-                      <option value="inspector">安全员</option>
-                      <option value="external">其他单位</option>
-                      <option value="admin">管理员</option>
-                    </select>
-                </td>
-                <td className="px-4 py-4">
-                  <select className="w-full rounded-lg border border-border bg-card px-3 py-2" value={user.managed_area_id || ""} disabled={normalizedRole(user.role) !== "admin" && normalizedRole(user.role) !== "external"} onChange={(event) => updateUserLocal(user.id, { managed_area_id: event.target.value || null })}>
-                    <option value="">不分配区域</option>
-                    {areaOptions.map((area) => <option key={area.id} value={area.id}>{`${"　".repeat(area.depth)}${area.name}`}</option>)}
-                  </select>
-                </td>
-                <td className="px-4 py-4">
-                  <select className="w-full rounded-lg border border-border bg-card px-3 py-2" value={user.status} onChange={(event) => updateUserLocal(user.id, { status: event.target.value })}>
-                    <option value="pending">待审核</option>
-                    <option value="approved">通过</option>
-                    <option value="rejected">驳回</option>
-                  </select>
-                  <div className="mt-2 text-xs text-muted-foreground">{statusText(user.status)}</div>
-                </td>
-                <td className="px-4 py-4">
-                  <div className="flex items-center justify-end gap-2">
-                    <button type="button" onClick={() => savePermissions(user)} className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90">
-                      <Save className="h-3.5 w-3.5" />
-                      保存
-                    </button>
-                    <button type="button" onClick={() => handleDelete(user.id)} className="rounded-lg p-2 text-destructive hover:bg-destructive/10" title="删除用户">
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+      <section className="border border-border bg-card">
+        <div className="grid gap-px bg-border md:grid-cols-2 xl:grid-cols-3">
+          {displayedUsers.map((user) => {
+            const status = statusMeta[user.status] || statusMeta.pending;
+            const role = String(user.role || "inspector").toLowerCase();
+            const requiresArea = role === "admin" || role === "external";
+            const isCurrentUser = user.id === currentUser?.id;
+            const isBusy = busyUserId === user.id;
+            return (
+              <article key={user.id} className="bg-card p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">{(user.real_name || user.username || "U").slice(0, 1).toUpperCase()}</div>
+                    <div className="min-w-0"><div className="truncate font-semibold">{user.real_name || user.username}</div><div className="truncate text-xs text-muted-foreground">{user.username}{user.phone ? ` · ${user.phone}` : ""}</div></div>
                   </div>
-                </td>
-              </tr>
-            ))}
-            {users.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="px-6 py-8 text-center text-muted-foreground">暂无用户数据。</td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
-      </div>
+                  <span className={`shrink-0 rounded px-2 py-1 text-xs ${status.className}`}>{status.label}</span>
+                </div>
+
+                <div className="mt-4 grid gap-3">
+                  <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">角色
+                    <select value={role} disabled={isCurrentUser || isBusy} onChange={(event) => patchUser(user.id, { role: event.target.value, managed_area_id: event.target.value === "inspector" ? null : user.managed_area_id })} className="w-full rounded-md border border-input bg-background px-3 py-2.5 text-sm text-foreground disabled:opacity-60">
+                      <option value="inspector">安全员</option><option value="external">外部协作方</option><option value="admin">区域管理员</option>
+                    </select>
+                  </label>
+                  <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">管理范围
+                    <select value={user.managed_area_id || ""} disabled={isCurrentUser || isBusy || !requiresArea} onChange={(event) => patchUser(user.id, { managed_area_id: event.target.value || null })} className="w-full rounded-md border border-input bg-background px-3 py-2.5 text-sm text-foreground disabled:opacity-60">
+                      <option value="">{requiresArea ? "请选择项目或作业区" : "安全员按任务授权"}</option>
+                      {areaOptions.map((area) => <option key={area.id} value={area.id}>{`${"　".repeat(area.depth)}${area.name}`}</option>)}
+                    </select>
+                  </label>
+                </div>
+
+                <div className="mt-4 flex items-center justify-between gap-3 border-t border-border pt-3 text-xs text-muted-foreground"><span>申请时间：{formatDate(user.created_at)}</span>{isCurrentUser ? <span>当前账号不可自改</span> : null}</div>
+                {!isCurrentUser ? <div className="mt-3 flex flex-wrap gap-2">
+                  {user.status === "pending" ? <><button type="button" disabled={isBusy} onClick={() => saveAccess(user, "approved", "申请已通过并完成授权。 ")} className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-2.5 text-sm font-medium text-primary-foreground disabled:opacity-60"><Check className="h-4 w-4" />通过并授权</button><button type="button" disabled={isBusy} onClick={() => rejectUser(user)} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-rose-200 px-3 py-2.5 text-sm font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-60"><X className="h-4 w-4" />驳回</button></> : null}
+                  {user.status === "approved" ? <><button type="button" disabled={isBusy} onClick={() => saveAccess(user)} className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-border px-3 py-2.5 text-sm font-medium hover:bg-muted disabled:opacity-60"><Save className="h-4 w-4" />保存授权</button><button type="button" disabled={isBusy} onClick={() => saveAccess(user, "suspended", "账号已停用，历史业务记录已保留。 ")} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-amber-200 px-3 py-2.5 text-sm font-medium text-amber-800 hover:bg-amber-50 disabled:opacity-60"><Ban className="h-4 w-4" />停用</button></> : null}
+                  {(user.status === "rejected" || user.status === "suspended") ? <button type="button" disabled={isBusy} onClick={() => saveAccess(user, "approved", "账号已恢复并重新授权。 ")} className="inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-emerald-200 px-3 py-2.5 text-sm font-medium text-emerald-800 hover:bg-emerald-50 disabled:opacity-60"><UserCheck className="h-4 w-4" />恢复为在用账号</button> : null}
+                </div> : null}
+              </article>
+            );
+          })}
+          {!displayedUsers.length ? <div className="bg-card px-5 py-16 text-center text-sm text-muted-foreground md:col-span-2 xl:col-span-3"><ShieldCheck className="mx-auto mb-2 h-5 w-5" />当前分类没有账号。</div> : null}
+        </div>
+      </section>
+      <div className="flex items-center gap-2 text-xs text-muted-foreground"><UserRound className="h-4 w-4" />安全员通过任务获得执行权限；区域管理员和外部协作方必须绑定负责范围。</div>
     </div>
   );
 }

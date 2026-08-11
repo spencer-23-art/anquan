@@ -56,6 +56,7 @@ def create_access_token(
         to_encode = {"sub": str(subject)}
 
     to_encode["exp"] = expire
+    to_encode["iat"] = datetime.utcnow()
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
@@ -63,6 +64,7 @@ def create_access_token(
 def decode_access_token(token: str) -> Optional[str]:
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        return payload.get("sub")
+        subject = payload.get("sub")
+        return str(subject) if subject is not None else None
     except JWTError:
         return None

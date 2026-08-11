@@ -10,6 +10,7 @@ import {
   LogOut,
   Map as MapIcon,
   Menu,
+  MoreHorizontal,
   Settings,
   ShieldCheck,
   Users,
@@ -36,6 +37,7 @@ const roleLabels = {
 };
 
 const normalizeRole = (role) => String(role || "").toLowerCase();
+const mobilePrimaryDestinations = new Set(["/dashboard", "/permits", "/fines", "/safety-logs"]);
 
 function SidebarContent({ user, onLogout, onNavigate }) {
   const userRole = normalizeRole(user?.role || "admin");
@@ -107,6 +109,10 @@ export default function Layout() {
     () => links.find((item) => item.to === location.pathname)?.label || "安全巡检管理系统",
     [location.pathname]
   );
+  const userRole = normalizeRole(user?.role || "admin");
+  const mobilePrimaryLinks = links.filter(
+    (link) => link.roles.includes(userRole) && mobilePrimaryDestinations.has(link.to)
+  );
 
   const handleLogout = () => {
     logout();
@@ -137,7 +143,7 @@ export default function Layout() {
 
   return (
     <div
-      className="flex min-h-screen text-slate-900 dark:text-slate-100"
+      className="app-shell flex min-h-[100dvh] text-slate-900 dark:text-slate-100"
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
@@ -179,18 +185,23 @@ export default function Layout() {
           </aside>
         </div>
 
-      <main className="flex min-w-0 flex-1 flex-col bg-transparent">
-        <header className="sticky top-0 z-30 flex items-center justify-start gap-3 glass-header px-4 py-3 lg:hidden">
+      <main className="flex min-w-0 flex-1 flex-col bg-transparent pb-[calc(4.75rem+env(safe-area-inset-bottom))] lg:pb-0">
+        <header className="sticky top-0 z-30 flex items-center justify-start gap-3 glass-header px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] lg:hidden">
           <button
             type="button"
             onClick={() => setMobileOpen(true)}
-            className="shrink-0 rounded-xl border border-slate-200 p-2 text-slate-700"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-700"
+            title="Open menu"
+            aria-label="Open menu"
           >
             <Menu size={18} />
           </button>
           <div className="min-w-0 flex-1">
             <div className="text-xs text-slate-500">安全巡检管理系统</div>
             <div className="truncate text-sm font-semibold text-slate-900">{currentTitle}</div>
+          </div>
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
+            {user?.username?.[0]?.toUpperCase() || "A"}
           </div>
         </header>
 
@@ -200,6 +211,38 @@ export default function Layout() {
           </div>
         </div>
       </main>
+
+      <nav
+        className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-slate-200 bg-white/95 px-1 pb-[max(0.35rem,env(safe-area-inset-bottom))] pt-1 backdrop-blur lg:hidden dark:border-white/10 dark:bg-[#1d2928]/95"
+        aria-label="Primary navigation"
+      >
+        {mobilePrimaryLinks.map((link) => {
+          const Icon = link.icon;
+          const isActive = location.pathname === link.to;
+          return (
+            <NavLink
+              key={link.to}
+              to={link.to}
+              className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-lg text-[11px] font-medium transition-colors ${
+                isActive ? "text-primary" : "text-slate-500 dark:text-slate-400"
+              }`}
+            >
+              <Icon size={20} strokeWidth={isActive ? 2.5 : 2} />
+              <span className="max-w-full truncate px-1">{link.label}</span>
+            </NavLink>
+          );
+        })}
+        <button
+          type="button"
+          onClick={() => setMobileOpen(true)}
+          className="flex min-h-14 flex-col items-center justify-center gap-1 rounded-lg text-[11px] font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-white/10"
+          title="More features"
+          aria-label="More features"
+        >
+          <MoreHorizontal size={22} />
+          <span>{"\u66f4\u591a"}</span>
+        </button>
+      </nav>
     </div>
   );
 }

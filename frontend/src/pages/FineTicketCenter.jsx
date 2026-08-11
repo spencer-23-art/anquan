@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Camera,
   Download,
@@ -49,6 +49,7 @@ export default function FineTicketCenter() {
   const [nextNumber, setNextNumber] = useState("--");
   const [form, setForm] = useState(defaultForm);
   const [summaryInput, setSummaryInput] = useState("");
+  const [matchedRule, setMatchedRule] = useState("");
   const [photos, setPhotos] = useState([]);
   const [history, setHistory] = useState([]);
   const [areas, setAreas] = useState([]);
@@ -89,44 +90,37 @@ export default function FineTicketCenter() {
   );
   const selectedProjectName = selectedArea?.name || form.project_name || "";
 
-  useEffect(() => {
-    loadNextNumber(ticketType);
-  }, [ticketType]);
-
-  useEffect(() => {
-    loadHistory();
-    loadAreas();
-  }, []);
-
-  const loadAreas = async () => {
+  const loadAreas = useCallback(async () => {
     try {
       const { data } = await api.get("/areas");
       const areaList = data || [];
       const options = buildAreaOptions(areaList);
-      const nextAreaId = form.area_id || String(options[0]?.id || "");
-      const nextArea = options.find((area) => String(area.id) === String(nextAreaId));
       setAreas(areaList);
-      setForm((prev) => ({
-        ...prev,
-        area_id: nextAreaId,
-        project_name: nextArea?.name || prev.project_name || "",
-      }));
+      setForm((prev) => {
+        const nextAreaId = prev.area_id || String(options[0]?.id || "");
+        const nextArea = options.find((area) => String(area.id) === String(nextAreaId));
+        return {
+          ...prev,
+          area_id: nextAreaId,
+          project_name: nextArea?.name || prev.project_name || "",
+        };
+      });
     } catch {
       setMessage("鍖哄煙鍔犺浇澶辫触");
       setMessageType("error");
     }
-  };
+  }, []);
 
-  const loadNextNumber = async (type) => {
+  const loadNextNumber = useCallback(async (type) => {
     try {
       const { data } = await api.get("/fines/next-number", { params: { type } });
       setNextNumber(data.number);
     } catch {
       setNextNumber("--");
     }
-  };
+  }, []);
 
-  const loadHistory = async () => {
+  const loadHistory = useCallback(async () => {
     setLoadingHistory(true);
     try {
       const { data } = await api.get("/fines/history");
@@ -137,7 +131,16 @@ export default function FineTicketCenter() {
     } finally {
       setLoadingHistory(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadNextNumber(ticketType);
+  }, [loadNextNumber, ticketType]);
+
+  useEffect(() => {
+    loadHistory();
+    loadAreas();
+  }, [loadAreas, loadHistory]);
 
   const updateForm = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -197,6 +200,7 @@ export default function FineTicketCenter() {
         penalty_type: ticketType,
       });
       updateForm("description", data.description);
+      setMatchedRule(data.rule_reference || "");
       setMessage("AI 描述已生成，你可以继续手动调整。");
       setMessageType("success");
     } catch {
@@ -411,6 +415,12 @@ export default function FineTicketCenter() {
                 AI 生成正式描述
               </button>
             </div>
+
+            {matchedRule ? (
+              <div className="rounded-2xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs leading-5 text-sky-800">
+                已匹配规范依据：{matchedRule}
+              </div>
+            ) : null}
 
             <div className="space-y-3 rounded-3xl border border-slate-200 bg-white p-4">
               <div className="flex items-center gap-2 text-sm font-medium text-slate-800">

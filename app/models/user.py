@@ -17,6 +17,7 @@ class UserStatus(str, enum.Enum):
     PENDING = "pending"
     APPROVED = "approved"
     REJECTED = "rejected"
+    SUSPENDED = "suspended"
 
 
 class User(Base):

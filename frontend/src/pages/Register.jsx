@@ -63,10 +63,10 @@ export default function Register() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4">
-      <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-2xl">
+    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-8 sm:px-6">
+      <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
         <h1 className="text-2xl font-bold text-slate-900">申请账号</h1>
-        <p className="mt-2 text-sm text-slate-500">
+        <p className="mt-2 text-sm leading-6 text-slate-500">
           提交后由管理员审核，审核通过后即可登录系统。
         </p>
 
@@ -76,9 +76,10 @@ export default function Register() {
               用户名
             </label>
             <input
-              className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none transition focus:border-emerald-500"
+              className="w-full rounded-lg border border-slate-300 px-4 py-3 text-base outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
               value={form.username}
               onChange={updateField("username")}
+              autoComplete="username"
               placeholder="请输入登录账号"
               required
             />
@@ -89,9 +90,10 @@ export default function Register() {
               真实姓名
             </label>
             <input
-              className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none transition focus:border-emerald-500"
+              className="w-full rounded-lg border border-slate-300 px-4 py-3 text-base outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
               value={form.real_name}
               onChange={updateField("real_name")}
+              autoComplete="name"
               placeholder="请输入真实姓名"
             />
           </div>
@@ -101,9 +103,12 @@ export default function Register() {
               手机号
             </label>
             <input
-              className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none transition focus:border-emerald-500"
+              type="tel"
+              inputMode="tel"
+              className="w-full rounded-lg border border-slate-300 px-4 py-3 text-base outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
               value={form.phone}
               onChange={updateField("phone")}
+              autoComplete="tel"
               placeholder="可选，用于联系和任务通知"
             />
           </div>
@@ -114,16 +119,17 @@ export default function Register() {
             </label>
             <input
               type="password"
-              className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none transition focus:border-emerald-500"
+              className="w-full rounded-lg border border-slate-300 px-4 py-3 text-base outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
               value={form.password}
               onChange={updateField("password")}
+              autoComplete="new-password"
               placeholder="至少 6 位，支持英文、数字和符号"
               required
             />
           </div>
 
           {error ? (
-            <div className="rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-600">
+            <div role="alert" className="rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-600">
               {error}
             </div>
           ) : null}

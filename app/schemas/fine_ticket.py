@@ -20,6 +20,7 @@ class FineDescriptionRequest(BaseModel):
 
 class FineDescriptionResponse(BaseModel):
     description: str
+    rule_reference: str
 
 
 class FineTicketCreateResponse(BaseModel):

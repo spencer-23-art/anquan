@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -18,7 +18,7 @@ from app.api.quality import router as quality_router
 from app.api.safety_logs import router as safety_logs_router
 from app.api.tasks import router as tasks_router
 from app.api.users import router as users_router
-from app.config import settings
+from app.config import settings, validate_security_settings
 from app.core.scheduler import start_scheduler, stop_scheduler
 from app.core.security import hash_password
 from app.database import Base, SessionLocal, engine
@@ -28,31 +28,32 @@ from app.models.user import User, UserRole, UserStatus
 def init_admin():
     db = SessionLocal()
     try:
-        admin = (
+        admin = db.query(User).filter(User.role == UserRole.ADMIN).first()
+        if admin:
+            return
+
+        configured_user = (
             db.query(User)
-            .filter(
-                or_(
-                    User.username == settings.ADMIN_USERNAME,
-                    User.role == UserRole.ADMIN,
-                )
-            )
+            .filter(User.username == settings.ADMIN_USERNAME)
             .first()
         )
-        if not admin:
-            admin = User(
-                username=settings.ADMIN_USERNAME,
-                password_hash=hash_password(settings.ADMIN_PASSWORD),
-                real_name=settings.ADMIN_REAL_NAME,
-                role=UserRole.ADMIN,
-                status=UserStatus.APPROVED,
-            )
-            db.add(admin)
-        else:
-            admin.username = settings.ADMIN_USERNAME
-            admin.password_hash = hash_password(settings.ADMIN_PASSWORD)
-            admin.real_name = settings.ADMIN_REAL_NAME
-            admin.role = UserRole.ADMIN
-            admin.status = UserStatus.APPROVED
+        if configured_user:
+            configured_user.role = UserRole.ADMIN
+            configured_user.status = UserStatus.APPROVED
+            db.commit()
+            return
+
+        if not settings.ADMIN_USERNAME or not settings.ADMIN_PASSWORD:
+            raise RuntimeError("Initial administrator credentials are not configured")
+
+        admin = User(
+            username=settings.ADMIN_USERNAME,
+            password_hash=hash_password(settings.ADMIN_PASSWORD),
+            real_name=settings.ADMIN_REAL_NAME,
+            role=UserRole.ADMIN,
+            status=UserStatus.APPROVED,
+        )
+        db.add(admin)
         db.commit()
     except Exception as e:
         db.rollback()
@@ -74,6 +75,9 @@ def ensure_runtime_schema():
         area_columns = {column["name"] for column in inspector.get_columns("areas")}
         if "parent_id" not in area_columns:
             conn.execute(text("ALTER TABLE areas ADD COLUMN parent_id INTEGER"))
+        if "is_active" not in area_columns:
+            conn.execute(text("ALTER TABLE areas ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT 1"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_areas_is_active ON areas (is_active)"))
 
         user_columns = {column["name"] for column in inspector.get_columns("users")}
         if "managed_area_id" not in user_columns:
@@ -192,6 +196,7 @@ def rebuild_areas_table_if_unique():
 
         area_columns = {row[1] for row in cursor.execute("PRAGMA table_info(areas)").fetchall()}
         parent_select = "parent_id" if "parent_id" in area_columns else "NULL"
+        active_select = "is_active" if "is_active" in area_columns else "1"
         cursor.execute("PRAGMA foreign_keys=OFF")
         cursor.executescript(
             f"""
@@ -200,14 +205,16 @@ def rebuild_areas_table_if_unique():
                 name VARCHAR(100) NOT NULL,
                 parent_id INTEGER,
                 description TEXT,
+                is_active BOOLEAN NOT NULL DEFAULT 1,
                 created_at DATETIME
             );
-            INSERT INTO areas_new (id, name, parent_id, description, created_at)
-            SELECT id, name, {parent_select}, description, created_at FROM areas;
+            INSERT INTO areas_new (id, name, parent_id, description, is_active, created_at)
+            SELECT id, name, {parent_select}, description, {active_select}, created_at FROM areas;
             DROP TABLE areas;
             ALTER TABLE areas_new RENAME TO areas;
             CREATE INDEX ix_areas_id ON areas (id);
             CREATE INDEX ix_areas_parent_id ON areas (parent_id);
+            CREATE INDEX ix_areas_is_active ON areas (is_active);
             """
         )
         cursor.execute("PRAGMA foreign_keys=ON")
@@ -218,6 +225,7 @@ def rebuild_areas_table_if_unique():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    validate_security_settings()
     Base.metadata.create_all(bind=engine)
     ensure_runtime_schema()
     init_admin()
@@ -240,9 +248,32 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(self), geolocation=(self), microphone=()")
+    response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+    response.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; "
+        "object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; worker-src 'self' blob:",
+    )
+
+    if request.url.path.startswith(("/api/auth", "/api/files")):
+        response.headers.setdefault("Cache-Control", "no-store, max-age=0")
+        response.headers.setdefault("Pragma", "no-cache")
+
+    return response
 
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(users_router)
@@ -255,7 +286,7 @@ app.include_router(quality_router)
 app.include_router(files_router)
 app.include_router(fines_router)
 
-UPLOAD_DIR = "uploads"
+UPLOAD_DIR = settings.UPLOAD_DIR
 if not os.path.exists(UPLOAD_DIR):
     os.makedirs(UPLOAD_DIR)
 

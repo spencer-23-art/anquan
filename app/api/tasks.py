@@ -8,24 +8,15 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import get_current_user, get_db, require_admin
 from app.config import settings
+from app.core.uploads import read_image_upload
 from app.models.task import CheckItemStatus, ChecklistItem, Task, TaskStatus
-from app.models.user import User, UserRole
+from app.models.user import User, UserRole, UserStatus
 from app.models.work_permit import PERMIT_DURATION_HOURS, PermitStatus, PermitType, WorkPermit
 from app.schemas.task import TaskCreate, TaskFromAI, TaskOut
-from app.services.area_scope import ensure_area_access, managed_area_ids
+from app.services.area_scope import ensure_active_area, ensure_area_access, managed_area_ids
 from app.services.task_context import clean_task_context_text, resolve_project_name
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
-
-
-async def read_limited_upload(upload: UploadFile) -> bytes:
-    content = await upload.read()
-    if len(content) > settings.MAX_UPLOAD_SIZE:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Upload too large. Max {settings.MAX_UPLOAD_SIZE // 1024}KB",
-        )
-    return content
 
 
 def task_query(db: Session):
@@ -68,13 +59,53 @@ def save_required_permits(task: Task, permits: list[dict]) -> None:
     task.required_permits = json.dumps(permits, ensure_ascii=False)
 
 
+def get_assignable_inspector(db: Session, user_id: int) -> User:
+    assignee = db.query(User).filter(User.id == user_id).first()
+    if not assignee:
+        raise HTTPException(status_code=404, detail="Assignee not found")
+    if assignee.role != UserRole.INSPECTOR or assignee.status != UserStatus.APPROVED:
+        raise HTTPException(status_code=400, detail="Assignee must be an approved inspector")
+    return assignee
+
+
+def required_permits_ready(task: Task) -> bool:
+    return all(
+        permit.get("permit_id") and permit.get("photo_url")
+        for permit in load_required_permits(task)
+    )
+
+
+def refresh_task_status(db: Session, task: Task) -> None:
+    total = db.query(ChecklistItem).filter(ChecklistItem.task_id == task.id).count()
+    checked = (
+        db.query(ChecklistItem)
+        .filter(
+            ChecklistItem.task_id == task.id,
+            ChecklistItem.status == CheckItemStatus.CHECKED,
+        )
+        .count()
+    )
+    can_complete = total > 0 and checked == total and required_permits_ready(task)
+
+    if can_complete:
+        if task.status != TaskStatus.COMPLETED:
+            task.status = TaskStatus.COMPLETED
+            task.completed_at = datetime.utcnow()
+        return
+
+    task.completed_at = None
+    task.status = TaskStatus.IN_PROGRESS if checked > 0 else TaskStatus.PENDING
+
+
 @router.post("", response_model=TaskOut, status_code=201)
 def create_task(
     data: TaskCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
+    ensure_active_area(db, data.area_id)
     ensure_area_access(db, current_user, data.area_id)
+    get_assignable_inspector(db, data.assignee_id)
     task = Task(
         title=data.title,
         description=data.description,
@@ -111,7 +142,9 @@ def create_task_from_ai(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
+    ensure_active_area(db, data.area_id)
     ensure_area_access(db, current_user, data.area_id)
+    get_assignable_inspector(db, data.assignee_id)
     task = Task(
         title=data.title,
         description=data.description,
@@ -198,16 +231,12 @@ async def check_item(
     if not task or task.assignee_id != current_user.id:
         raise HTTPException(status_code=403, detail="No access to this task")
 
-    if not photo.content_type or not photo.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="Photo must be an image")
-
     upload_dir = os.path.join(settings.UPLOAD_DIR, "checklist", str(task_id))
     os.makedirs(upload_dir, exist_ok=True)
-    ext = photo.filename.rsplit(".", 1)[-1] if photo.filename and "." in photo.filename else "jpg"
+    content, ext = await read_image_upload(photo)
     filename = f"{item_id}_{datetime.now().strftime('%Y%m%d%H%M%S%f')}.{ext}"
     filepath = os.path.join(upload_dir, filename)
 
-    content = await read_limited_upload(photo)
     with open(filepath, "wb") as file_obj:
         file_obj.write(content)
 
@@ -220,19 +249,9 @@ async def check_item(
     item.status = CheckItemStatus.CHECKED
     item.note = note
     item.checked_at = datetime.utcnow()
+
+    refresh_task_status(db, task)
     db.commit()
-
-    total = db.query(ChecklistItem).filter(ChecklistItem.task_id == task_id).count()
-    checked = (
-        db.query(ChecklistItem)
-        .filter(ChecklistItem.task_id == task_id, ChecklistItem.status == CheckItemStatus.CHECKED)
-        .count()
-    )
-
-    if checked == total:
-        task.status = TaskStatus.COMPLETED
-        task.completed_at = datetime.utcnow()
-        db.commit()
 
     return {"message": "Checklist item checked", "photo_urls": existing}
 
@@ -258,16 +277,12 @@ async def add_photo_to_item(
     if not task or task.assignee_id != current_user.id:
         raise HTTPException(status_code=403, detail="No access to this task")
 
-    if not photo.content_type or not photo.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="Photo must be an image")
-
     upload_dir = os.path.join(settings.UPLOAD_DIR, "checklist", str(task_id))
     os.makedirs(upload_dir, exist_ok=True)
-    ext = photo.filename.rsplit(".", 1)[-1] if photo.filename and "." in photo.filename else "jpg"
+    content, ext = await read_image_upload(photo)
     filename = f"{item_id}_{datetime.now().strftime('%Y%m%d%H%M%S%f')}.{ext}"
     filepath = os.path.join(upload_dir, filename)
 
-    content = await read_limited_upload(photo)
     with open(filepath, "wb") as file_obj:
         file_obj.write(content)
 
@@ -298,24 +313,25 @@ async def upload_required_permit_photo(
     if permit_index < 0 or permit_index >= len(required_permits):
         raise HTTPException(status_code=404, detail="Required permit not found")
 
-    if not photo.content_type or not photo.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="Photo must be an image")
-
     permit_data = required_permits[permit_index]
-    permit_type = PermitType(permit_data.get("type"))
+    try:
+        permit_type = PermitType(permit_data.get("type"))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid required permit type") from exc
     upload_dir = os.path.join(settings.UPLOAD_DIR, "permits")
     os.makedirs(upload_dir, exist_ok=True)
-    ext = photo.filename.rsplit(".", 1)[-1] if photo.filename and "." in photo.filename else "jpg"
+    content, ext = await read_image_upload(photo)
     filename = f"task_{task_id}_permit_{permit_index}_{datetime.now().strftime('%Y%m%d%H%M%S%f')}.{ext}"
     filepath = os.path.join(upload_dir, filename)
 
-    content = await read_limited_upload(photo)
     with open(filepath, "wb") as file_obj:
         file_obj.write(content)
 
     photo_url = f"/uploads/permits/{filename}"
     existing_permit_id = permit_data.get("permit_id")
     permit = db.query(WorkPermit).filter(WorkPermit.id == existing_permit_id).first() if existing_permit_id else None
+    if permit and (permit.area_id != task.area_id or permit.task_id not in (None, task.id)):
+        raise HTTPException(status_code=403, detail="Required permit is not available for this task")
     responsible_person = (
         responsible_person.strip()
         or str(permit_data.get("responsible_person") or "").strip()
@@ -333,6 +349,7 @@ async def upload_required_permit_photo(
         permit.photo_url = photo_url
         permit.responsible_person = responsible_person
         permit.description = permit_description
+        permit.task_id = task.id
     else:
         start_time = get_permit_start_time(permit_type)
         permit = WorkPermit(
@@ -359,6 +376,7 @@ async def upload_required_permit_photo(
     )
     required_permits[permit_index] = permit_data
     save_required_permits(task, required_permits)
+    refresh_task_status(db, task)
     db.commit()
     return task_query(db).filter(Task.id == task.id).first()
 

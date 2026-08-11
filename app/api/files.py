@@ -88,9 +88,21 @@ def can_access_upload(db: Session, user: User, upload_url: str) -> bool:
             return True
         return False
 
-    if permit_query.first():
+    if user.role == UserRole.INSPECTOR:
+        if permit_query.filter(
+            or_(
+                WorkPermit.applicant_id == user.id,
+                WorkPermit.task.has(Task.assignee_id == user.id),
+            )
+        ).first():
+            return True
+        if task_query.filter(Task.assignee_id == user.id).first():
+            return True
+        return False
+
+    if permit_query.filter(WorkPermit.applicant_id == user.id).first():
         return True
-    if task_query.first():
+    if task_query.filter(Task.assignee_id == user.id).first():
         return True
     return False
 
@@ -114,4 +126,11 @@ def get_protected_file(
     if not can_access_upload(db, user, upload_url):
         raise HTTPException(status_code=403, detail="No permission to access this file")
 
-    return FileResponse(target)
+    return FileResponse(
+        target,
+        headers={
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
+        },
+    )

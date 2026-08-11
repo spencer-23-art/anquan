@@ -11,7 +11,7 @@ from app.models.ai_analysis_history import AIAnalysisHistory
 from app.models.area import Area
 from app.models.system_config import SystemConfig
 from app.models.task import ChecklistItem, Severity, Task
-from app.models.user import User
+from app.models.user import User, UserRole, UserStatus
 from app.models.work_permit import WARNING_THRESHOLD_PERCENT, PermitStatus, PermitType, WorkPermit
 from app.schemas.system_config import (
     AIAnalysisHistoryOut,
@@ -24,7 +24,7 @@ from app.schemas.system_config import (
 )
 from app.services import ai_config_service
 from app.services import risk_inquiry
-from app.services.area_scope import ensure_area_access, managed_area_ids
+from app.services.area_scope import ensure_active_area, ensure_area_access, managed_area_ids
 from app.services.task_context import build_task_description, clean_task_context_text, resolve_project_name
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
@@ -731,7 +731,7 @@ def ai_chat(
 def create_task_from_ai(
     data: AICreateTaskRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     title = data.title
     items = data.items or []
@@ -747,11 +747,16 @@ def create_task_from_ai(
         raise HTTPException(status_code=400, detail="Checklist items are required")
 
     try:
+        ensure_active_area(db, data.area_id)
         ensure_area_access(db, current_user, data.area_id)
         assignee = db.query(User).filter(User.id == data.assignee_id).first()
         if not assignee:
             raise HTTPException(status_code=404, detail="Assignee not found")
+        if assignee.role != UserRole.INSPECTOR or assignee.status != UserStatus.APPROVED:
+            raise HTTPException(status_code=400, detail="Assignee must be an approved inspector")
         area = db.query(Area).filter(Area.id == data.area_id).first()
+        if not area:
+            raise HTTPException(status_code=404, detail="Area not found")
         project_name = resolve_project_name(db, data.area_id, data.project_name)
         work_point = clean_task_context_text(data.work_point)
         process_name = clean_task_context_text(data.process_name)

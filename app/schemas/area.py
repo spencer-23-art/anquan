@@ -14,6 +14,7 @@ class AreaUpdate(BaseModel):
     name: Optional[str] = None
     parent_id: Optional[int] = None
     description: Optional[str] = None
+    is_active: Optional[bool] = None
 
 
 class AreaOut(BaseModel):
@@ -21,6 +22,7 @@ class AreaOut(BaseModel):
     name: str
     parent_id: Optional[int] = None
     description: Optional[str] = None
+    is_active: bool = True
     created_at: datetime
 
     class Config:

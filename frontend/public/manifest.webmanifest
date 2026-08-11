@@ -1,0 +1,17 @@
+{
+  "name": "安全巡检管理系统",
+  "short_name": "安全巡检",
+  "description": "企业现场安全巡检、作业许可与风险闭环管理",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f7f6",
+  "theme_color": "#07835f",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

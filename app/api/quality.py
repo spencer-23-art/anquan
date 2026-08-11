@@ -4,10 +4,10 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_db
+from app.api.deps import get_current_user, get_db, require_admin
 from app.models.ai_analysis_history import AIAnalysisHistory
 from app.models.task import ChecklistItem, Severity, Task
-from app.models.user import User
+from app.models.user import User, UserRole, UserStatus
 from app.schemas.system_config import (
     AIAnalysisHistoryOut,
     AIChatMessage,
@@ -15,7 +15,7 @@ from app.schemas.system_config import (
     AICreateTaskRequest,
 )
 from app.services import quality_inquiry
-from app.services.area_scope import ensure_area_access, managed_area_ids
+from app.services.area_scope import ensure_active_area, ensure_area_access, managed_area_ids
 from app.services.task_context import build_task_description, clean_task_context_text, resolve_project_name
 
 router = APIRouter(prefix="/api/quality", tags=["quality"])
@@ -180,7 +180,7 @@ def quality_chat(
 def create_task_from_quality_ai(
     data: AICreateTaskRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     title = data.title
     items = data.items or []
@@ -196,10 +196,13 @@ def create_task_from_quality_ai(
         raise HTTPException(status_code=400, detail="Quality checklist items are required")
 
     try:
+        ensure_active_area(db, data.area_id)
         ensure_area_access(db, current_user, data.area_id)
         assignee = db.query(User).filter(User.id == data.assignee_id).first()
         if not assignee:
             raise HTTPException(status_code=404, detail="Assignee not found")
+        if assignee.role != UserRole.INSPECTOR or assignee.status != UserStatus.APPROVED:
+            raise HTTPException(status_code=400, detail="Assignee must be an approved inspector")
         project_name = resolve_project_name(db, data.area_id, data.project_name)
         work_point = clean_task_context_text(data.work_point)
         process_name = clean_task_context_text(data.process_name)

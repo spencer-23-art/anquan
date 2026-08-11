@@ -3,10 +3,12 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import get_current_user, get_db, require_admin
 from app.config import settings
+from app.core.uploads import read_image_upload
 from app.models.area import Area
 from app.models.task import Task
 from app.models.user import User, UserRole
@@ -19,7 +21,7 @@ from app.models.work_permit import (
     WorkPermitRenewal,
 )
 from app.schemas.work_permit import WorkPermitOut, WorkPermitRenewalOut, WorkPermitWarning
-from app.services.area_scope import ensure_area_access, is_area_scoped_user, managed_area_ids
+from app.services.area_scope import ensure_active_area, ensure_area_access, is_area_scoped_user, managed_area_ids
 
 router = APIRouter(prefix="/api/permits", tags=["permits"])
 
@@ -37,27 +39,13 @@ def get_permit_start_time(permit_type: PermitType, now: Optional[datetime] = Non
     return workday_start
 
 
-async def read_limited_upload(upload: UploadFile) -> bytes:
-    content = await upload.read()
-    if len(content) > settings.MAX_UPLOAD_SIZE:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Upload too large. Max {settings.MAX_UPLOAD_SIZE // 1024}KB",
-        )
-    return content
-
-
 async def save_permit_photo(photo: UploadFile, current_user: User) -> str:
-    if not photo.content_type or not photo.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="Photo must be an image")
-
     upload_dir = os.path.join(settings.UPLOAD_DIR, "permits")
     os.makedirs(upload_dir, exist_ok=True)
-    ext = photo.filename.rsplit(".", 1)[-1] if photo.filename and "." in photo.filename else "jpg"
+    content, ext = await read_image_upload(photo)
     filename = f"permit_{datetime.now().strftime('%Y%m%d%H%M%S%f')}_{current_user.id}.{ext}"
     filepath = os.path.join(upload_dir, filename)
 
-    content = await read_limited_upload(photo)
     with open(filepath, "wb") as file_obj:
         file_obj.write(content)
     return f"/uploads/permits/{filename}"
@@ -94,7 +82,14 @@ def scoped_permit_query(db: Session, current_user: User):
     )
     query = query.filter(~((WorkPermit.task_id.isnot(None)) & (WorkPermit.photo_url.is_(None))))
     allowed_ids = managed_area_ids(db, current_user)
-    if allowed_ids is not None and is_area_scoped_user(current_user):
+    if current_user.role == UserRole.INSPECTOR:
+        query = query.filter(
+            or_(
+                WorkPermit.applicant_id == current_user.id,
+                WorkPermit.task.has(Task.assignee_id == current_user.id),
+            )
+        )
+    elif allowed_ids is not None and is_area_scoped_user(current_user):
         query = query.filter(WorkPermit.area_id.in_(allowed_ids))
     return query
 
@@ -130,13 +125,19 @@ async def create_permit(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
+    ensure_active_area(db, area_id)
     ensure_area_access(db, current_user, area_id)
+    responsible_person = responsible_person.strip()
+    if not responsible_person:
+        raise HTTPException(status_code=400, detail="Responsible person is required")
     photo_url = await save_permit_photo(photo, current_user)
     start_time = get_permit_start_time(type)
     end_time = calculate_end_time(type, start_time)
 
     if previous_permit_id is not None:
         prev = get_scoped_permit(db, previous_permit_id, current_user)
+        if prev.area_id != area_id or prev.type != type:
+            raise HTTPException(status_code=400, detail="Previous permit must have the same area and type")
         refresh_permit_status(prev)
 
     permit = WorkPermit(
@@ -253,12 +254,16 @@ async def create_manual_permit(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    ensure_active_area(db, area_id)
     if is_area_scoped_user(current_user):
         ensure_area_access(db, current_user, area_id)
     else:
         area = db.query(Area.id).filter(Area.id == area_id).first()
         if not area:
             raise HTTPException(status_code=404, detail="Area not found")
+    responsible_person = responsible_person.strip()
+    if not responsible_person:
+        raise HTTPException(status_code=400, detail="Responsible person is required")
     start_time = get_permit_start_time(type)
     end_time = calculate_end_time(type, start_time)
     photo_url = await save_permit_photo(photo, current_user) if photo else None

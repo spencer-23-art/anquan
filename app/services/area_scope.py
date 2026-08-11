@@ -40,8 +40,26 @@ def is_area_scoped_user(user: User) -> bool:
 
 
 def ensure_area_access(db: Session, user: User, area_id: int) -> None:
+    if not db.query(Area.id).filter(Area.id == area_id).first():
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail="Area not found")
+
     allowed_ids = managed_area_ids(db, user)
     if allowed_ids is not None and area_id not in allowed_ids:
         from fastapi import HTTPException
 
         raise HTTPException(status_code=403, detail="No access to this area")
+
+
+def ensure_active_area(db: Session, area_id: int) -> Area:
+    area = db.query(Area).filter(Area.id == area_id).first()
+    if not area:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail="Area not found")
+    if not area.is_active:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=409, detail="Archived areas cannot receive new business records")
+    return area

@@ -16,6 +16,7 @@ from PIL import Image
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.core.uploads import validate_image_content
 from app.models.fine_ticket import FineTicketType
 from app.services import ai_config_service
 
@@ -172,6 +173,13 @@ def generate_description(
     discovery_date: str,
     ticket_type: FineTicketType,
 ) -> str:
+    rule_reference = resolve_rule_reference(
+        user_input=user_input,
+        project_name=project_name,
+        team_name=team_name,
+        location=location,
+        ticket_type=ticket_type,
+    )
     fallback = _fallback_description(
         user_input=user_input,
         project_name=project_name,
@@ -182,7 +190,6 @@ def generate_description(
     )
 
     ticket_name = _ticket_name(ticket_type)
-    rule_reference = _resolve_rule_reference(user_input, ticket_type)
     fact_date = _format_fact_date(discovery_date)
     system_prompt = (
         f"你是一名建筑工程{ticket_name}管理负责人，擅长起草正式的施工罚款通知单内容。"
@@ -211,6 +218,15 @@ def generate_description(
         f"罚单类型：{ticket_name}罚款单"
     )
 
+    # The model is limited to fact wording. The compliance paragraph is deterministic
+    # so that it always contains the vetted rule selected from the ticket context.
+    system_prompt = "你是施工现场管理人员，只起草罚单中的违章事实。不得编造法规、条款号、整改措施或结束语。"
+    user_prompt = (
+        "请将以下现场信息写成一段正式、客观的中文违章事实，保留项目、班组、部位和发现日期。"
+        "只输出一段正文，不要标题、编号、法规依据、整改建议或任何附加说明。\n"
+        f"项目：{project_name}\n班组：{team_name}\n部位：{location}\n发现日期：{fact_date}\n现场描述：{user_input}"
+    )
+
     try:
         _used_provider, payload = ai_config_service.request_chat_completion(
             db,
@@ -218,25 +234,24 @@ def generate_description(
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            temperature=0.4,
-            max_tokens=700,
+            temperature=0.1,
+            max_tokens=360,
             timeout=60.0,
         )
         content = payload["choices"][0]["message"]["content"].strip()
         if not content:
-            return fallback
-        content = _normalize_ai_generated_text(content, discovery_date, ticket_type)
-        paragraphs = _build_description_paragraphs(content, discovery_date, ticket_type)
+            return "\n".join(_build_controlled_description(fallback, discovery_date, ticket_type, rule_reference))
+        paragraphs = _build_controlled_description(content, discovery_date, ticket_type, rule_reference)
         if _description_too_simple(
             paragraphs,
             project_name=project_name,
             team_name=team_name,
             location=location,
         ):
-            paragraphs = _build_description_paragraphs(fallback, discovery_date, ticket_type)
+            paragraphs = _build_controlled_description(fallback, discovery_date, ticket_type, rule_reference)
         return "\n".join(paragraphs)
     except Exception:
-        return "\n".join(_build_description_paragraphs(fallback, discovery_date, ticket_type))
+        return "\n".join(_build_controlled_description(fallback, discovery_date, ticket_type, rule_reference))
 
 
 def _set_run_font(
@@ -419,9 +434,84 @@ def _has_any(text: str, keywords: Iterable[str]) -> bool:
     return any(keyword in text for keyword in keywords)
 
 
+RULE_CATALOG: tuple[tuple[FineTicketType, tuple[str, ...], str], ...] = (
+    (
+        FineTicketType.SAFETY,
+        ("安全帽", "未戴帽", "未佩戴帽", "安全鞋", "反光衣", "防护眼镜", "防护手套"),
+        "《建筑施工作业劳动防护用品配备及使用标准》JGJ 184-2009中关于个人劳动防护用品配备和正确使用的相关规定",
+    ),
+    (
+        FineTicketType.SAFETY,
+        ("脚手架", "脚手板", "连墙件", "扫地杆", "剪刀撑", "架体"),
+        "《建筑施工扣件式钢管脚手架安全技术规范》JGJ 130-2011中关于架体基础、连墙件、剪刀撑和作业层防护的相关规定",
+    ),
+    (
+        FineTicketType.SAFETY,
+        ("高处", "登高", "安全带", "临边", "洞口", "坠落", "高空"),
+        "《建筑施工高处作业安全技术规范》JGJ 80-2016中关于临边洞口防护、登高作业和防坠落措施的相关规定",
+    ),
+    (
+        FineTicketType.SAFETY,
+        ("临电", "配电箱", "漏保", "电缆", "接地", "电线", "三级配电", "二级保护"),
+        "《施工现场临时用电安全技术规范》JGJ 46-2005中关于配电箱、漏电保护、接地和电缆敷设的相关规定",
+    ),
+    (
+        FineTicketType.SAFETY,
+        ("动火", "焊接", "切割", "明火", "气瓶", "乙炔", "氧气瓶"),
+        "《建设工程施工现场消防安全技术规范》GB 50720-2011中关于动火审批、消防器材配置和可燃物清理的相关规定",
+    ),
+    (
+        FineTicketType.SAFETY,
+        ("吊装", "起重", "信号工", "司索", "塔吊", "吊物", "吊篮"),
+        "《建筑施工起重吊装工程安全技术规范》JGJ 276-2012中关于吊装指挥、索具、吊物和作业区域控制的相关规定",
+    ),
+    (
+        FineTicketType.QUALITY,
+        ("钢筋", "箍筋", "保护层", "混凝土", "振捣", "蜂窝", "麻面", "露筋"),
+        "《混凝土结构工程施工质量验收规范》GB 50204-2015中关于钢筋、混凝土成型质量和检验控制的相关规定",
+    ),
+    (
+        FineTicketType.QUALITY,
+        ("钢结构", "钢梁", "钢柱", "焊缝", "高强螺栓", "防腐", "防火涂料"),
+        "《钢结构工程施工质量验收标准》GB 50205-2020中关于钢结构安装、连接质量和验收的相关规定",
+    ),
+    (
+        FineTicketType.QUALITY,
+        ("抹灰", "空鼓", "开裂", "饰面", "墙砖", "地砖", "平整度"),
+        "《建筑装饰装修工程质量验收标准》GB 50210-2018中关于抹灰、饰面和安装工程质量验收的相关规定",
+    ),
+    (
+        FineTicketType.QUALITY,
+        ("防水", "渗漏", "漏水", "卷材", "涂膜", "闭水"),
+        "《建筑与市政工程防水通用规范》GB 55030-2022中关于防水材料、节点和渗漏控制的相关规定",
+    ),
+)
+
+
+def resolve_rule_reference(
+    *,
+    user_input: str,
+    project_name: str = "",
+    team_name: str = "",
+    location: str = "",
+    ticket_type: FineTicketType,
+) -> str:
+    """Choose a vetted rule from the complete ticket context, never from AI output."""
+    context = " ".join([user_input or "", project_name or "", team_name or "", location or ""])
+    return _resolve_rule_reference(context, ticket_type)
+
+
 def _resolve_rule_reference(user_input: str, ticket_type: FineTicketType) -> str:
     base = _default_rule_reference(ticket_type)
     text = str(user_input or "")
+
+    catalog_matches = [
+        (sum(keyword in text for keyword in keywords), reference)
+        for rule_type, keywords, reference in RULE_CATALOG
+        if rule_type == ticket_type and _has_any(text, keywords)
+    ]
+    if catalog_matches:
+        return max(catalog_matches, key=lambda item: item[0])[1]
 
     if ticket_type == FineTicketType.QUALITY:
         if _has_any(text, ["钢结构", "钢构", "钢梁", "钢柱", "焊缝", "高强螺栓", "防腐", "防火涂料"]):
@@ -511,6 +601,43 @@ def _normalize_ai_generated_text(content: str, discovery_date: str | None, ticke
     if len(lines) > 1 and rule_reference not in lines[1]:
         lines[1] = lines[1].rstrip("。") + f"，违反{rule_reference}。"
     return "\n".join(lines) if lines else normalized
+
+
+def _build_controlled_description(
+    description: str,
+    discovery_date: str | None,
+    ticket_type: FineTicketType,
+    rule_reference: str,
+) -> list[str]:
+    """Keep facts editable while keeping the legal basis and ending deterministic."""
+    fact_date = _format_fact_date(discovery_date)
+    ticket_name = _ticket_name(ticket_type)
+    raw_lines = [
+        line.strip()
+        for line in str(description or "").replace("\r", "\n").split("\n")
+        if line and line.strip()
+    ]
+
+    fact_lines: list[str] = []
+    for line in raw_lines:
+        if line.startswith("二、") or "违反条款及性质" in line:
+            break
+        cleaned = re.sub(r"^一、\s*违章事实及经过\s*[:：]?", "", line).strip()
+        if cleaned:
+            fact_lines.append(cleaned)
+
+    fact = " ".join(fact_lines).strip()
+    if not fact:
+        fact = f"经现场{ticket_name}检查，发现存在违规作业行为，已责令立即整改。"
+    if fact_date not in fact:
+        fact = f"{fact_date}，{fact}"
+
+    first = f"一、违章事实及经过：{fact.rstrip('。')}。"
+    second = (
+        f"二、违反条款及性质：上述行为不符合{rule_reference}及项目现场{ticket_name}管理要求，"
+        "属于应当立即整改的违规行为。"
+    )
+    return [_compact_text(first, 180), _compact_text(second, 260)]
 
 
 def _build_description_paragraphs(
@@ -616,11 +743,11 @@ def save_uploaded_photos(files: Iterable) -> list[Path]:
     for file in files:
         if not getattr(file, "filename", ""):
             continue
-        suffix = Path(file.filename).suffix or ".jpg"
-        output_path = PHOTOS_DIR / f"{uuid.uuid4().hex}{suffix}"
         content = file.file.read()
         if len(content) > settings.MAX_UPLOAD_SIZE:
             raise ValueError(f"Upload too large. Max {settings.MAX_UPLOAD_SIZE // 1024}KB")
+        _, extension = validate_image_content(content)
+        output_path = PHOTOS_DIR / f"{uuid.uuid4().hex}.{extension}"
         with output_path.open("wb") as buffer:
             buffer.write(content)
         saved_paths.append(output_path)
