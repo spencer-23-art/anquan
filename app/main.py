@@ -127,6 +127,11 @@ def ensure_runtime_schema():
             if "area_id" not in fine_columns:
                 conn.execute(text("ALTER TABLE fine_tickets ADD COLUMN area_id INTEGER"))
                 conn.execute(text("CREATE INDEX IF NOT EXISTS ix_fine_tickets_area_id ON fine_tickets (area_id)"))
+            if "rule_id" not in fine_columns:
+                conn.execute(text("ALTER TABLE fine_tickets ADD COLUMN rule_id VARCHAR(80)"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_fine_tickets_rule_id ON fine_tickets (rule_id)"))
+            if "rule_reference" not in fine_columns:
+                conn.execute(text("ALTER TABLE fine_tickets ADD COLUMN rule_reference TEXT"))
 
         if "checklist_items" in table_names:
             checklist_columns = {column["name"] for column in inspector.get_columns("checklist_items")}

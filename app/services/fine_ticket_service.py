@@ -19,6 +19,7 @@ from app.config import settings
 from app.core.uploads import validate_image_content
 from app.models.fine_ticket import FineTicketType
 from app.services import ai_config_service
+from app.services.fine_rule_catalog import FineRule
 
 DOCS_DIR = Path(settings.UPLOAD_DIR) / "fines" / "docs"
 PHOTOS_DIR = Path(settings.UPLOAD_DIR) / "fines" / "photos"
@@ -172,14 +173,9 @@ def generate_description(
     location: str,
     discovery_date: str,
     ticket_type: FineTicketType,
+    rule: FineRule,
 ) -> str:
-    rule_reference = resolve_rule_reference(
-        user_input=user_input,
-        project_name=project_name,
-        team_name=team_name,
-        location=location,
-        ticket_type=ticket_type,
-    )
+    rule_reference = rule.reference
     fallback = _fallback_description(
         user_input=user_input,
         project_name=project_name,
@@ -252,6 +248,16 @@ def generate_description(
         return "\n".join(paragraphs)
     except Exception:
         return "\n".join(_build_controlled_description(fallback, discovery_date, ticket_type, rule_reference))
+
+
+def apply_rule_to_description(
+    description: str,
+    discovery_date: str | None,
+    ticket_type: FineTicketType,
+    rule: FineRule,
+) -> str:
+    """Persist a ticket with its selected, vetted basis instead of free-form legal text."""
+    return "\n".join(_build_controlled_description(description, discovery_date, ticket_type, rule.reference))
 
 
 def _set_run_font(
@@ -633,10 +639,7 @@ def _build_controlled_description(
         fact = f"{fact_date}，{fact}"
 
     first = f"一、违章事实及经过：{fact.rstrip('。')}。"
-    second = (
-        f"二、违反条款及性质：上述行为不符合{rule_reference}及项目现场{ticket_name}管理要求，"
-        "属于应当立即整改的违规行为。"
-    )
+    second = f"二、违反条款及性质：上述行为不符合{rule_reference}的相关规定。"
     return [_compact_text(first, 180), _compact_text(second, 260)]
 
 
@@ -765,6 +768,7 @@ def build_fine_document(
     amount: Decimal,
     description: str,
     photo_paths: list[Path],
+    rule_reference: str | None = None,
 ) -> tuple[str, Path]:
     ensure_storage_dirs()
     doc = Document()
@@ -822,7 +826,11 @@ def build_fine_document(
         bottom={"val": "single", "sz": 10, "color": BOX_BLACK},
         right={"val": "single", "sz": 10, "color": BOX_BLACK},
     )
-    paragraphs = _build_description_paragraphs(description, discovery_date, ticket_type)
+    paragraphs = (
+        _build_controlled_description(description, discovery_date, ticket_type, rule_reference)
+        if rule_reference
+        else _build_description_paragraphs(description, discovery_date, ticket_type)
+    )
     for index, line in enumerate(paragraphs):
         paragraph = desc_cell.paragraphs[0] if index == 0 else desc_cell.add_paragraph()
         paragraph.paragraph_format.left_indent = Pt(0)

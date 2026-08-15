@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Camera,
+  ChevronDown,
+  ChevronUp,
   Download,
   FileText,
   History,
@@ -49,17 +51,23 @@ export default function FineTicketCenter() {
   const [nextNumber, setNextNumber] = useState("--");
   const [form, setForm] = useState(defaultForm);
   const [summaryInput, setSummaryInput] = useState("");
+  const [ruleOptions, setRuleOptions] = useState([]);
+  const [selectedRuleId, setSelectedRuleId] = useState("");
   const [matchedRule, setMatchedRule] = useState("");
   const [photos, setPhotos] = useState([]);
   const [history, setHistory] = useState([]);
+  const [historyExpanded, setHistoryExpanded] = useState(false);
+  const [historyOverflow, setHistoryOverflow] = useState(false);
   const [areas, setAreas] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [generatingText, setGeneratingText] = useState(false);
+  const [loadingRules, setLoadingRules] = useState(false);
   const [creating, setCreating] = useState(false);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState("success");
   const [lastCreated, setLastCreated] = useState(null);
   const fileInputRef = useRef(null);
+  const historyListRef = useRef(null);
 
   const theme = useMemo(() => {
     if (ticketType === "safety") {
@@ -89,6 +97,10 @@ export default function FineTicketCenter() {
     [areaOptions, form.area_id],
   );
   const selectedProjectName = selectedArea?.name || form.project_name || "";
+  const selectedRule = useMemo(
+    () => ruleOptions.find((rule) => rule.id === selectedRuleId) || null,
+    [ruleOptions, selectedRuleId],
+  );
 
   const loadAreas = useCallback(async () => {
     try {
@@ -125,6 +137,7 @@ export default function FineTicketCenter() {
     try {
       const { data } = await api.get("/fines/history");
       setHistory(data);
+      setHistoryExpanded(false);
     } catch {
       setMessage("罚单历史加载失败");
       setMessageType("error");
@@ -142,6 +155,25 @@ export default function FineTicketCenter() {
     loadAreas();
   }, [loadAreas, loadHistory]);
 
+  useEffect(() => {
+    if (historyExpanded || loadingHistory) return undefined;
+
+    const list = historyListRef.current;
+    if (!list) return undefined;
+
+    const updateOverflow = () => {
+      setHistoryOverflow(list.scrollHeight > list.clientHeight + 1);
+    };
+    const frameId = requestAnimationFrame(updateOverflow);
+    const observer = new ResizeObserver(updateOverflow);
+    observer.observe(list);
+
+    return () => {
+      cancelAnimationFrame(frameId);
+      observer.disconnect();
+    };
+  }, [history, historyExpanded, loadingHistory]);
+
   const updateForm = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
@@ -153,6 +185,38 @@ export default function FineTicketCenter() {
       area_id: value,
       project_name: nextArea?.name || "",
     }));
+  };
+
+  const clearRuleSelection = () => {
+    setRuleOptions([]);
+    setSelectedRuleId("");
+    setMatchedRule("");
+  };
+
+  const loadRuleOptions = async () => {
+    if (!summaryInput.trim()) return null;
+    setLoadingRules(true);
+    try {
+      const { data } = await api.get("/fines/rule-options", {
+        params: {
+          type: ticketType,
+          input: summaryInput,
+          project_name: selectedProjectName,
+          team_name: form.team_name,
+          location: form.location,
+        },
+      });
+      const options = data.options || [];
+      setRuleOptions(options);
+      setSelectedRuleId((current) => current || data.recommended_rule_id || "");
+      return data;
+    } catch {
+      setMessage("法规依据匹配失败，请稍后重试。");
+      setMessageType("error");
+      return null;
+    } finally {
+      setLoadingRules(false);
+    }
   };
 
   const addPhotos = async (files) => {
@@ -188,6 +252,13 @@ export default function FineTicketCenter() {
       return;
     }
 
+    if (!selectedRuleId) {
+      await loadRuleOptions();
+      setMessage("请先确认与现场事实相符的法规依据，再生成正式描述。");
+      setMessageType("error");
+      return;
+    }
+
     setGeneratingText(true);
     setMessage("");
     try {
@@ -198,13 +269,14 @@ export default function FineTicketCenter() {
         location: form.location,
         discovery_date: form.discovery_date,
         penalty_type: ticketType,
+        rule_id: selectedRuleId,
       });
       updateForm("description", data.description);
       setMatchedRule(data.rule_reference || "");
       setMessage("AI 描述已生成，你可以继续手动调整。");
       setMessageType("success");
-    } catch {
-      setMessage("AI 描述生成失败");
+    } catch (error) {
+      setMessage(error.response?.data?.detail || "AI 描述生成失败");
       setMessageType("error");
     } finally {
       setGeneratingText(false);
@@ -212,7 +284,7 @@ export default function FineTicketCenter() {
   };
 
   const handleCreateTicket = async () => {
-    if (!selectedProjectName || !form.team_name || !form.location || !form.amount || !form.description) {
+    if (!selectedProjectName || !form.team_name || !form.location || !form.amount || !form.description || !selectedRuleId) {
       setMessage("请把项目名称、班组、部位、金额和正式描述填写完整");
       setMessageType("error");
       return;
@@ -233,6 +305,7 @@ export default function FineTicketCenter() {
       payload.append("discovery_date", form.discovery_date);
       payload.append("amount", form.amount);
       payload.append("description", form.description);
+      payload.append("rule_id", selectedRuleId);
       photos.forEach((item) => payload.append("photos", item.file));
 
       const { data } = await api.post("/fines", payload, {
@@ -241,6 +314,7 @@ export default function FineTicketCenter() {
 
       setLastCreated(data);
       setSummaryInput("");
+      clearRuleSelection();
       setForm((prev) => ({
         ...defaultForm,
         area_id: prev.area_id,
@@ -307,14 +381,20 @@ export default function FineTicketCenter() {
             <div className="inline-flex rounded-2xl bg-slate-100 p-1">
               <button
                 type="button"
-                onClick={() => setTicketType("safety")}
+                onClick={() => {
+                  setTicketType("safety");
+                  clearRuleSelection();
+                }}
                 className={`rounded-2xl px-4 py-2 text-sm font-medium transition ${ticketType === "safety" ? "bg-blue-600 text-white shadow-sm" : "text-slate-600"}`}
               >
                 安全罚单
               </button>
               <button
                 type="button"
-                onClick={() => setTicketType("quality")}
+                onClick={() => {
+                  setTicketType("quality");
+                  clearRuleSelection();
+                }}
                 className={`rounded-2xl px-4 py-2 text-sm font-medium transition ${ticketType === "quality" ? "bg-amber-600 text-white shadow-sm" : "text-slate-600"}`}
               >
                 质量罚单
@@ -329,7 +409,10 @@ export default function FineTicketCenter() {
               <select
                 className="w-full rounded-2xl border border-slate-300 px-4 py-3"
                 value={form.area_id}
-                onChange={(event) => handleAreaChange(event.target.value)}
+                onChange={(event) => {
+                  handleAreaChange(event.target.value);
+                  clearRuleSelection();
+                }}
               >
                 <option value="">请选择项目</option>
                 {areaOptions.map((area) => (
@@ -342,7 +425,10 @@ export default function FineTicketCenter() {
               <input
                 className="w-full rounded-2xl border border-slate-300 px-4 py-3"
                 value={form.team_name}
-                onChange={(event) => updateForm("team_name", event.target.value)}
+                onChange={(event) => {
+                  updateForm("team_name", event.target.value);
+                  clearRuleSelection();
+                }}
                 placeholder="例如：木工班组 / 张三"
               />
             </label>
@@ -351,7 +437,10 @@ export default function FineTicketCenter() {
               <input
                 className="w-full rounded-2xl border border-slate-300 px-4 py-3"
                 value={form.location}
-                onChange={(event) => updateForm("location", event.target.value)}
+                onChange={(event) => {
+                  updateForm("location", event.target.value);
+                  clearRuleSelection();
+                }}
                 placeholder="例如：2 号楼 8 层东侧"
               />
             </label>
@@ -402,9 +491,38 @@ export default function FineTicketCenter() {
               <textarea
                 className="min-h-[180px] w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm"
                 value={summaryInput}
-                onChange={(event) => setSummaryInput(event.target.value)}
+                onChange={(event) => {
+                  setSummaryInput(event.target.value);
+                  clearRuleSelection();
+                }}
+                onBlur={loadRuleOptions}
                 placeholder="先写一段概况，例如：木工班组人员未按要求佩戴安全带，擅自进入临边高处作业区域。"
               />
+              <label className="block space-y-2">
+                <span className="text-xs font-medium text-slate-600">适用依据（需确认）</span>
+                <select
+                  className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 disabled:cursor-not-allowed disabled:bg-slate-100"
+                  value={selectedRuleId}
+                  onChange={(event) => {
+                    setSelectedRuleId(event.target.value);
+                    setMatchedRule("");
+                  }}
+                  disabled={loadingRules || !ruleOptions.length}
+                >
+                  <option value="">{loadingRules ? "正在匹配依据..." : "请先填写违规概况并确认依据"}</option>
+                  {ruleOptions.map((rule) => (
+                    <option key={rule.id} value={rule.id}>{rule.is_recommended ? `推荐：${rule.label}` : rule.label}</option>
+                  ))}
+                </select>
+              </label>
+              {selectedRule ? (
+                <div className="rounded-2xl border border-sky-200 bg-sky-50 px-3 py-2.5 text-xs leading-5 text-sky-900">
+                  <div>法律/行政法规：{selectedRule.legal_basis || "不适用"}</div>
+                  {selectedRule.technical_basis ? <div className="mt-1">工程建设标准：{selectedRule.technical_basis}</div> : null}
+                  {selectedRule.matched_keywords?.length ? <div className="mt-1 text-sky-700">匹配事实：{selectedRule.matched_keywords.join("、")}</div> : null}
+                  {selectedRule.source_url ? <a className="mt-1 inline-block text-sky-700 underline" href={selectedRule.source_url} target="_blank" rel="noreferrer">查看法规原文</a> : null}
+                </div>
+              ) : null}
               <button
                 type="button"
                 onClick={handleGenerateDescription}
@@ -415,12 +533,6 @@ export default function FineTicketCenter() {
                 AI 生成正式描述
               </button>
             </div>
-
-            {matchedRule ? (
-              <div className="rounded-2xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs leading-5 text-sky-800">
-                已匹配规范依据：{matchedRule}
-              </div>
-            ) : null}
 
             <div className="space-y-3 rounded-3xl border border-slate-200 bg-white p-4">
               <div className="flex items-center gap-2 text-sm font-medium text-slate-800">
@@ -433,6 +545,7 @@ export default function FineTicketCenter() {
                 onChange={(event) => updateForm("description", event.target.value)}
                 placeholder="AI 生成后会出现在这里，你也可以直接手工修改最终描述。"
               />
+              {matchedRule ? <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">已写入并锁定的依据：{matchedRule}</div> : null}
             </div>
           </div>
 
@@ -528,29 +641,46 @@ export default function FineTicketCenter() {
               还没有生成过罚单。
             </div>
           ) : (
-            <div className="space-y-3">
-              {history.map((item) => (
-                <div key={item.id} className="rounded-2xl border border-slate-200 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-medium text-slate-900">{item.number}</div>
-                      <div className="mt-1 text-xs text-slate-500">
-                        {item.project_name}{item.area_name ? ` 路 ${item.area_name}` : ""}
+            <>
+              <div
+                ref={historyListRef}
+                className="space-y-3 overflow-hidden"
+                style={{ maxHeight: historyExpanded ? "none" : "250px" }}
+              >
+                {history.map((item) => (
+                  <div key={item.id} className="rounded-2xl border border-slate-200 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-medium text-slate-900">{item.number}</div>
+                        <div className="mt-1 text-xs text-slate-500">
+                          {item.project_name}{item.area_name ? ` 路 ${item.area_name}` : ""}
+                        </div>
+                        <div className="mt-1 text-xs text-slate-500">开具人：{item.creator_name || "-"}</div>
                       </div>
-                      <div className="mt-1 text-xs text-slate-500">开具人：{item.creator_name || "-"}</div>
+                      <button
+                        type="button"
+                        onClick={() => handleDownload(item)}
+                        className="inline-flex items-center gap-1 rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-700 transition hover:bg-slate-50"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        下载
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleDownload(item)}
-                      className="inline-flex items-center gap-1 rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-700 transition hover:bg-slate-50"
-                    >
-                      <Download className="h-3.5 w-3.5" />
-                      下载
-                    </button>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+              {historyOverflow ? (
+                <button
+                  type="button"
+                  onClick={() => setHistoryExpanded((expanded) => !expanded)}
+                  aria-expanded={historyExpanded}
+                  className="inline-flex w-full items-center justify-center gap-1 rounded-xl border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-50"
+                >
+                  {historyExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                  {historyExpanded ? "收起生成历史" : `展开全部 ${history.length} 条历史`}
+                </button>
+              ) : null}
+            </>
           )}
         </aside>
       </div>

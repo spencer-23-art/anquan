@@ -18,11 +18,14 @@ from app.schemas.fine_ticket import (
     FineDescriptionRequest,
     FineDescriptionResponse,
     FineNumberPreview,
+    FineRuleOption,
+    FineRuleOptionsResponse,
     FineTicketCreateResponse,
     FineTicketHistoryItem,
 )
 from app.services import fine_ticket_service
 from app.services.area_scope import ensure_area_access, is_super_admin, managed_area_ids
+from app.services.fine_rule_catalog import find_rule_matches, get_rule, recommend_rule_id
 
 router = APIRouter(prefix="/api/fines", tags=["fines"])
 
@@ -85,13 +88,13 @@ def generate_description(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Invalid fine ticket type") from exc
 
-    rule_reference = fine_ticket_service.resolve_rule_reference(
-        user_input=data.input,
-        project_name=data.project_name,
-        team_name=data.team_name,
-        location=data.location,
-        ticket_type=ticket_type,
-    )
+    if not data.rule_id:
+        raise HTTPException(status_code=422, detail="Please confirm a specific legal basis before generating the description")
+    try:
+        rule = get_rule(data.rule_id, ticket_type)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     description = fine_ticket_service.generate_description(
         db=db,
         user_input=data.input,
@@ -100,8 +103,47 @@ def generate_description(
         location=data.location,
         discovery_date=data.discovery_date,
         ticket_type=ticket_type,
+        rule=rule,
     )
-    return FineDescriptionResponse(description=description, rule_reference=rule_reference)
+    return FineDescriptionResponse(
+        description=description,
+        rule_id=rule.id,
+        rule_reference=rule.reference,
+        legal_basis=rule.legal_basis,
+        technical_basis=rule.technical_basis,
+    )
+
+
+@router.get("/rule-options", response_model=FineRuleOptionsResponse)
+def fine_rule_options(
+    type: str = "quality",
+    input: str = "",
+    project_name: str = "",
+    team_name: str = "",
+    location: str = "",
+    _user: User = Depends(get_current_user),
+):
+    try:
+        ticket_type = FineTicketType(type)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid fine ticket type") from exc
+
+    context = " ".join([input, project_name, team_name, location])
+    recommended_id = recommend_rule_id(ticket_type, context)
+    options = [
+        FineRuleOption(
+            id=rule.id,
+            label=rule.label,
+            legal_basis=rule.legal_basis,
+            technical_basis=rule.technical_basis,
+            rule_reference=rule.reference,
+            source_url=rule.source_url,
+            matched_keywords=list(matched_keywords),
+            is_recommended=rule.id == recommended_id,
+        )
+        for rule, matched_keywords in find_rule_matches(ticket_type, context)
+    ]
+    return FineRuleOptionsResponse(options=options, recommended_rule_id=recommended_id)
 
 
 @router.post("", response_model=FineTicketCreateResponse)
@@ -114,6 +156,7 @@ def create_fine_ticket(
     discovery_date: str = Form(""),
     amount: str = Form(...),
     description: str = Form(...),
+    rule_id: str = Form(...),
     photos: list[UploadFile] = File(default=[]),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -129,6 +172,17 @@ def create_fine_ticket(
     photo_paths: list[Path] = []
     try:
         ensure_fine_area_access(db, current_user, area_id)
+        try:
+            rule = get_rule(rule_id, ticket_type)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        final_description = fine_ticket_service.apply_rule_to_description(
+            description,
+            discovery_date,
+            ticket_type,
+            rule,
+        )
 
         number = fine_ticket_service.consume_next_number(ticket_type)
         photo_paths = fine_ticket_service.save_uploaded_photos(photos)
@@ -140,8 +194,9 @@ def create_fine_ticket(
             location=location,
             discovery_date=discovery_date,
             amount=amount_value,
-            description=description,
+            description=final_description,
             photo_paths=photo_paths,
+            rule_reference=rule.reference,
         )
 
         record = FineTicket(
@@ -153,7 +208,9 @@ def create_fine_ticket(
             location=location,
             discovery_date=discovery_date,
             amount=amount_value,
-            description=description,
+            description=final_description,
+            rule_id=rule.id,
+            rule_reference=rule.reference,
             document_path=str(output_path),
             photo_count=len(photo_paths),
             creator_id=current_user.id,
@@ -211,6 +268,8 @@ def fine_ticket_history(
                 discovery_date=record.discovery_date,
                 amount=record.amount,
                 description=record.description,
+                rule_id=record.rule_id,
+                rule_reference=record.rule_reference,
                 photo_count=record.photo_count,
                 created_at=record.created_at,
                 creator_name=creator_name,

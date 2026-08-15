@@ -25,6 +25,8 @@ class FineTicket(Base):
     discovery_date = Column(String(32), nullable=True)
     amount = Column(Numeric(10, 2), nullable=False)
     description = Column(Text, nullable=False)
+    rule_id = Column(String(80), nullable=True, index=True)
+    rule_reference = Column(Text, nullable=True)
     document_path = Column(String(500), nullable=False)
     photo_count = Column(Integer, default=0, nullable=False)
     creator_id = Column(Integer, ForeignKey("users.id"), nullable=False)
